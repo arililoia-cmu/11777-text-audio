@@ -1,0 +1,7 @@
+# .gitignore
+dataset.nosync/audio/
+dataset.nosync/ECALS/
+*.code-workspace
+*.h5
+*.db
+*.gz
