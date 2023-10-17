@@ -5,3 +5,4 @@ dataset.nosync/ECALS/
 *.h5
 *.db
 *.gz
+*.DS_Store
