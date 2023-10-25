@@ -1,8 +1,11 @@
 # .gitignore
 dataset.nosync/audio/
 dataset.nosync/ECALS/
+dataset.nosync/npy/
 *.code-workspace
 *.h5
 *.db
 *.gz
 *.DS_Store
+.vscode
+__pycache__/
