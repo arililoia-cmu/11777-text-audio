@@ -63,17 +63,25 @@ def split_data():
         print(f'{key} original: {len(ecals_split[key])}, new: {len(new_split[key])}')
     json.dump(new_split, open('split.json', 'w'))
 
-def convert_cvs_json():
+def get_song_tags():
+    with open('ECALS/ecals_annotation/annotation.json', 'r') as f:
+        ecals_annotation = json.load(f)
+    
     with open('song_tags.csv', 'r') as f:
         reader = csv.reader(f)
         next(reader)
         rows = list(reader)
-    song_tags = {row[1]: row[2] for row in rows}
+    
+    song_tags = dict()
+    for row in rows:
+        msd_id = row[1]
+        song_tags[msd_id] = ecals_annotation[msd_id]['tag']
     json.dump(song_tags, open('song_tags.json', 'w'))
+    print(f'Number of songs: {len(song_tags)}')
 
 
 if __name__ == '__main__':
     # convert_audio()
-    split_data()
-    # convert_cvs_json()
+    # split_data()
+    get_song_tags()
     
