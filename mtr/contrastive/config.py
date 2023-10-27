@@ -52,6 +52,6 @@ def get_parser():
     parser.add_argument("--temperature", default=0.2, type=float)
     parser.add_argument("--mlp_dim", default=128, type=int)
     parser.add_argument("--text_type", default="bert", type=str)
-    parser.add_argument("--text_rep", default="stochastic", type=str)
+    parser.add_argument("--text_rep", default="caption", type=str)
 
     return parser

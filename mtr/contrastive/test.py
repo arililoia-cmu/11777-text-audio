@@ -174,7 +174,8 @@ def main_worker(args):
     sq_targets = pd.DataFrame(targets.numpy(), index=track_ids, columns=test_dataset.tags)
 
     single_query_evaluation(sq_targets, sq_logits, save_dir, TAGNAMES) # 50 tag evaluation
-    single_query_evaluation(sq_targets, sq_logits, save_dir, test_dataset.tags) # 1054 tag evaluation
+    single_query_evaluation(sq_targets, sq_logits, save_dir, test_dataset.split_tags) # test split tag evaluation
+    # single_query_evaluation(sq_targets, sq_logits, save_dir, test_dataset.tags) # 1054 tag evaluation
     # multi_query_evaluation(tag_dict, multi_query_dict, save_dir) # multi_query evaluation
 
 

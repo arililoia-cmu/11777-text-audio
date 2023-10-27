@@ -6,6 +6,7 @@ import librosa
 import numpy as np
 import json
 from tqdm import tqdm
+from collections import defaultdict, OrderedDict
 
 def load_audio(path, sr=16000, duration=30):
     try:
@@ -79,9 +80,98 @@ def get_song_tags():
     json.dump(song_tags, open('song_tags.json', 'w'))
     print(f'Number of songs: {len(song_tags)}')
 
+def check_exist():
+    with open('song_tags.json', 'r') as f:
+        song_tags = json.load(f)
+    
+    # Check if corresponding .npy file exists
+    not_exit = []
+    for msd_id in tqdm(song_tags):
+        path = os.path.join('npy/', msd_id + '.npy')
+        if not os.path.exists(path):
+            print(f'{msd_id} does not exist')
+            not_exit.append(msd_id)
+    for msd_id in not_exit:
+        del song_tags[msd_id]
+    json.dump(song_tags, open('song_tags.json', 'w'))
+
+def check_length():
+    with open('song_tags.json', 'r') as f:
+        song_tags = json.load(f)
+    
+    short = []
+    for msd_id in tqdm(song_tags):
+        path = os.path.join('npy/', msd_id + '.npy')
+        audio = np.load(path, mmap_mode='r')
+        if len(audio) < 16000 * 10:
+            short.append(msd_id)
+            os.remove(path)
+    
+    print(f'Number of short songs: {len(short)}')
+
+    for msd_id in short:
+        del song_tags[msd_id]
+    json.dump(song_tags, open('song_tags.json', 'w'))
+
+def match_split():
+    with open('song_tags.json', 'r') as f:
+        song_tags = json.load(f)
+    
+    with open('split.json', 'r') as f:
+        split = json.load(f)
+    
+    total = 0
+    for key in split:
+        delete = []
+        for msd_id in split[key]:
+            if msd_id not in song_tags:
+                delete.append(msd_id)
+        total += len(delete)
+        for msd_id in delete:
+            split[key].remove(msd_id)
+    json.dump(split, open('split.json', 'w'))
+    print(f'Total: {total}')
+
+def split_tag():
+    with open('split.json', 'r') as f:
+        split = json.load(f)
+    
+    with open('song_tags.json', 'r') as f:
+        song_tags = json.load(f)
+    
+    tags = dict()
+    for key in split:
+        key_tag = set()
+        for msd_id in split[key]:
+            key_tag.update(song_tags[msd_id])
+        tags[key] = list(key_tag)
+    json.dump(tags, open('split_tags.json', 'w'), indent=4)
+
+def tag_stat():
+    with open('song_tags.json', 'r') as f:
+        song_tags = json.load(f)
+    
+    with open('split.json', 'r') as f:
+        split = json.load(f)
+    
+    stat = defaultdict(int)
+    for msd_id in song_tags:
+        for tag in song_tags[msd_id]:
+            stat[tag] += 1
+    stat = OrderedDict(sorted(stat.items(), key=lambda x: x[1], reverse=True))
+    json.dump(stat, open('tag_stat.json', 'w'), indent=4)
+
 
 if __name__ == '__main__':
     # convert_audio()
     # split_data()
-    get_song_tags()
+    # get_song_tags()
+    # check_exist()
+    # check_length()
+    # match_split()
+    # tag_stat()
+    split_tag()
+
+
     
+

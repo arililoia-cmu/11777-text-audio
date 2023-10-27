@@ -24,6 +24,7 @@ class ECALS_Dataset(Dataset):
         split_path = os.path.join(self.data_path, 'split.json')
         song_tag_path = os.path.join(self.data_path, 'song_tags.json')
         ecals_tag_path = os.path.join(self.data_path, 'ecals_tags.json')
+        split_tag_path = os.path.join(self.data_path, 'split_tags.json')
         
         with open(split_path, 'r') as f:
             split = json.load(f)
@@ -45,7 +46,16 @@ class ECALS_Dataset(Dataset):
             self.tags = ecals_tags
             self.tag_to_idx = {i:idx for idx, i in enumerate(self.tags)}
         
-        del split, song_tags, ecals_tags
+        with open(split_tag_path, 'r') as f:
+            split_tags = json.load(f)
+            if self.split == "TRAIN":
+                self.split_tags = split_tags['train_track'] + split_tags['extra_track']
+            elif self.split == "VALID":
+                self.split_tags = split_tags['valid_track']
+            elif self.split == "TEST":
+                self.split_tags = split_tags['test_track']
+        
+        del split, song_tags, ecals_tags, split_tags
     
     def load_audio(self, msd_id, train=True):
         path = os.path.join(self.data_path, 'npy', msd_id + '.npy')
@@ -79,10 +89,10 @@ class ECALS_Dataset(Dataset):
         return text
     
     def tag_to_binary(self, tag_list):
-        bainry = np.zeros([len(self.tags),], dtype=np.float32)
+        binary = np.zeros([len(self.tags),], dtype=np.float32)
         for tag in tag_list:
-            bainry[self.tag_to_idx[tag]] = 1.0
-        return bainry
+            binary[self.tag_to_idx[tag]] = 1.0
+        return binary
     
     def get_train_item(self, index):
         song = self.songs[index]
@@ -104,7 +114,6 @@ class ECALS_Dataset(Dataset):
         tags = self.tags
         track_id = song[0]
         audio = self.load_audio(track_id, train=False)
-        # audio = torch.ones([self.num_chunks, self.input_length])
         return {
             "audio":audio, 
             "track_id":track_id, 
