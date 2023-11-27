@@ -170,8 +170,19 @@ if __name__ == '__main__':
     # check_length()
     # match_split()
     # tag_stat()
-    split_tag()
+    # split_tag()
 
+
+    with open('split.json', 'r') as f:
+        split = json.load(f)
+    print(f'Train: {len(split["train_track"]) + len(split["extra_track"])}')
+    print(f'Valid: {len(split["valid_track"])}')
+    print(f'Test: {len(split["test_track"])}')
+    with open('split_tags.json', 'r') as f:
+        split_tags = json.load(f)
+    print(f'Train tags: {len(split_tags["train_track"])}')
+    print(f'Valid tags: {len(split_tags["valid_track"])}')
+    print(f'Test tags: {len(split_tags["test_track"])}')
 
     
 

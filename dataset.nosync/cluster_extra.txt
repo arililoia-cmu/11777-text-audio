@@ -1,0 +1,103 @@
+latin pop, 3, latin
+Americana, 3, american
+Vocal Jazz, 2, vocal
+Brazilian Traditions, 3, Brazilian
+Vocal Pop, 2, vocal
+Saxophone Jazz, 2, Saxophone
+Scandinavian Metal, 3, Scandinavian
+Piano Jazz, 2, Piano
+Guitar Jazz, 2, Guitar
+French Pop, 3, French
+West Coast Rap, 3, West Coast
+American Trad Rock, 3, American
+Italian Pop, 3, Italian
+Latin Jazz, 3, Latin
+British Folk, 3, British
+Swedish Pop Rock, 3, Swedish
+Euro Dance, 3, Euro
+Euro Pop, 3, Euro
+Jungle Drum and Bass, 2, Drum and Bass
+British Invasion, 3, British
+British Punk, 3, British
+American Punk, 3, American
+Chicago Blues, 3, Chicago
+British Psychedelia, 3, British
+British Metal, 3, British
+British Folk Rock, 3, British
+Piano Blues, 2, Piano
+Contemporary Celtic, 3, Celtic
+French Rock, 3, French
+Latin Rap, 3, Latin
+Irish Folk, 3, Irish
+British Blues, 3, British
+Brazilian Jazz, 3, Brazilian
+Latin Rock, 3, Latin
+British Trad Rock, 3, British
+Euro Rock, 3, Euro
+Afro Pop, 3, Afro
+Celtic Rock, 3, Celtic
+Afro Cuban Jazz, 3, Afro Cuban
+Spanish Rock, 3, Spanish
+L.A. Punk, 3, L.A.
+New Orleans RnB, 3, New Orleans
+Celtic Fusion, 3, Celtic
+Piano New Age, 3, Piano
+Eurodance, 3, Euro
+American Popular Song, 3, American
+Native American, 3, American
+Viking Metal, 3, Viking
+Traditional Irish Folk, 3, Irish
+Detroit Rock, 3, Detroit
+Detroit Techno, 3, Detroit
+New Wave of British Heavy Metal, 3, British
+Italiana, 3, Italian
+Krautrock, 3, Kraut
+Kraut Rock, 3, Kraut
+Scandinavian Pop, 3, Scandinavian
+Afro Beat, 3, Afro
+West Coast Blues, 3, West Coast
+West Coast Jazz, 3, West Coast
+Midwest Rap, 3, Midwest
+West Coast Rap, 3, West Coast
+Southern Rock, 3, Southern
+Southern Soul, 3, Southern
+Jewish Music, 3, Jewish
+New Orleans Jazz, 3, New Orleans
+Europop, 3, Euro
+Guitar Solo, 2, Guitar
+Italo Disco, 3, Italo
+French House, 3, French
+Afrobeat, 3, Afro
+Mexican Traditions, 3, Mexican
+African Traditions, 3, African
+Central European Traditions, 3, Central European
+South American Traditions, 3, South American
+Indian Subcontinent Traditions, 3, Indian Subcontinent
+Dominican Traditions, 3, Dominican
+Western European Traditions, 3, Western European
+Cuban Jazz, 3, Cuban
+African Folk, 3, African
+Memphis Blues, 3, Memphis
+Jpop, 3, Japanese
+Memphis Soul, 3, Memphis
+American Underground, 3, American
+International Fusion, 3, International
+Keyboard Synthesizer New Age, 2, Keyboard Synthesizer
+New Zealand Rock, 3, New Zealand
+Rock en Español, 3, Español
+Rock en Espanol, 3, Espanol
+Celtic Folk, 3, Celtic
+Guitar New Age, 2, Guitar
+New Orleans Blues, 3, New Orleans
+Traditional Celtic, 3, Celtic
+South Eastern European Traditions, 3, South Eastern European
+North American Traditions, 3, North American
+Japanese Traditions, 3, Japanese
+jungle drumbass, 2, drumbass
+acoustic memphis blues, 3, memphis
+rock en espaol, 3, espaol
+latin, 3, latin
+italiana, 3, italiana
+melodic, 4, melodic
+cumbia, 3, cumbia
+klezmer, 3, klezmer
