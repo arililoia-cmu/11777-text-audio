@@ -10,3 +10,5 @@ dataset.nosync/npy/
 .vscode
 __pycache__/
 *.csv
+*.tfevents.*
+*.pt

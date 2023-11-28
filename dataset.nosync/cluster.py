@@ -55,13 +55,13 @@ def cluster():
             extras[parts[0].strip()] = ('mood', parts[2].strip())
     
     tags = [group, extras]
-    json.dump(tags, open('dataset.nosync/clustered_tags.json', 'w'), indent=4)
+    json.dump(tags, open('dataset.nosync/tag_cluster.json', 'w'), indent=4)
 
 def cluster_song():
     with open('dataset.nosync/song_tags.json') as f:
         song_tags = json.load(f)
     
-    with open('dataset.nosync/clustered_tags.json') as f:
+    with open('dataset.nosync/tag_cluster.json') as f:
         cluster, extra = json.load(f)
     
     cluster_tags = dict()
@@ -75,7 +75,19 @@ def cluster_song():
                 cluster_tags[song][c2].append(t)
     json.dump(cluster_tags, open('dataset.nosync/clustered_song_tags.json', 'w'))
 
+def cluster_tag():
+    with open('dataset.nosync/tag_cluster.json') as f:
+        tag_cluster, extra = json.load(f)
+    clusters = defaultdict(list)
+    for t, c in tag_cluster.items():
+        clusters[c].append(t)
+    for tag in extra:
+        c, t = extra[tag]
+        clusters[c].append(t)
+    json.dump(clusters, open('dataset.nosync/clustered_tags.json', 'w'), indent=4)
+
 
 if __name__ == '__main__':
     # cluster()
-    cluster_song()
+    # cluster_song()
+    cluster_tag()
