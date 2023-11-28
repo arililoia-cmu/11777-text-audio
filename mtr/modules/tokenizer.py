@@ -5,9 +5,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 import sys
+from pathlib import Path
 
-sys.path.append('..')
-from modules.ops import Res2DMaxPoolModule
+sys.path.append(Path(__file__).parent.parent.parent.as_posix())
+from mtr.modules.ops import Res2DMaxPoolModule
 
 class SpecPatchEmbed(nn.Module):
     """ 2D spectrogram to Patch Embedding

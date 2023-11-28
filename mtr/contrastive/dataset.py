@@ -4,16 +4,20 @@ import numpy as np
 import random
 import torch
 from torch.utils.data import Dataset
+from config import CLUSTERS
 
 
 class ECALS_Dataset(Dataset):
     def __init__(self, data_path, split, sr, duration, num_chunks,
-                 text_preprocessor=None, text_type="bert", text_rep="stochastic"):
+                 text_preprocessor=None, text_type="bert", text_rep="stochastic",
+                 disentangle=False):
         super().__init__()
         self.data_path = data_path
         self.split = split
         self.input_length = int(sr * duration)
         self.num_chunks = num_chunks
+        self.disentangle = disentangle
+        
         self.get_split()
         self.text_preprocessor = text_preprocessor
         self.text_type = text_type
@@ -22,8 +26,12 @@ class ECALS_Dataset(Dataset):
     
     def get_split(self):
         split_path = os.path.join(self.data_path, 'split.json')
-        song_tag_path = os.path.join(self.data_path, 'song_tags.json')
-        ecals_tag_path = os.path.join(self.data_path, 'ecals_tags.json')
+        if self.disentangle:
+            song_tag_path = os.path.join(self.data_path, 'clustered_song_tags.json')
+            tag_path = os.path.join(self.data_path, 'clustered_tags.json')
+        else:
+            song_tag_path = os.path.join(self.data_path, 'song_tags.json')
+            tag_path = os.path.join(self.data_path, 'ecals_tags.json')
         split_tag_path = os.path.join(self.data_path, 'split_tags.json')
         
         with open(split_path, 'r') as f:
@@ -41,10 +49,15 @@ class ECALS_Dataset(Dataset):
             song_tags = json.load(f)
             self.songs = [(k, song_tags[k]) for k in track]
         
-        with open(ecals_tag_path, 'r') as f:
-            ecals_tags = json.load(f)
-            self.tags = ecals_tags
-            self.tag_to_idx = {i:idx for idx, i in enumerate(self.tags)}
+        with open(tag_path, 'r') as f:
+            tags = json.load(f)
+            self.tags = tags
+            if self.disentangle:
+                self.tag_to_idx = dict()
+                for cluster in CLUSTERS:
+                    self.tag_to_idx[cluster] = {i:idx for idx, i in enumerate(self.tags[cluster])}
+            else:
+                self.tag_to_idx = {i:idx for idx, i in enumerate(self.tags)}
         
         with open(split_tag_path, 'r') as f:
             split_tags = json.load(f)
@@ -55,7 +68,7 @@ class ECALS_Dataset(Dataset):
             elif self.split == "TEST":
                 self.split_tags = split_tags['test_track']
         
-        del split, song_tags, ecals_tags, split_tags
+        del split, song_tags, tags, split_tags
     
     def load_audio(self, msd_id, train=True):
         path = os.path.join(self.data_path, 'npy', msd_id + '.npy')
@@ -87,6 +100,32 @@ class ECALS_Dataset(Dataset):
             k = random.randint(1, len(tag_list)) 
             text = random.sample(tag_list, k)
         return text
+            
+    def load_text_cluster(self, tag_list):
+        """
+        input: tag_list = list of tag
+        output: texts = dict of cluster to string of text
+                cluster_mask = binary mask of cluster
+        """
+        texts = dict()
+        cluster_mask = []
+        for cluster in CLUSTERS:
+            if cluster not in tag_list:
+                cluster_mask.append(0)
+                texts[cluster] = ''
+                continue
+            if self.text_rep == "caption":
+                if self.split == "TRAIN":
+                    random.shuffle(tag_list[cluster])
+                text = tag_list[cluster]
+            elif self.text_rep == "tag":
+                text = [random.choice(tag_list[cluster])]
+            elif self.text_rep == "stochastic":
+                k = random.randint(1, len(tag_list[cluster])) 
+                text = random.sample(tag_list[cluster], k)
+            texts[cluster] = text
+            cluster_mask.append(1)
+        return texts, np.array(cluster_mask)
     
     def tag_to_binary(self, tag_list):
         binary = np.zeros([len(self.tags),], dtype=np.float32)
@@ -94,17 +133,32 @@ class ECALS_Dataset(Dataset):
             binary[self.tag_to_idx[tag]] = 1.0
         return binary
     
+    def tag_cluster_to_binary(self, tag_cluster):
+        binary = dict()
+        for cluster in CLUSTERS:
+            binary[cluster] = np.zeros([len(self.tags[cluster]),], dtype=np.float32)
+            if cluster in tag_cluster:
+                for tag in tag_cluster[cluster]:
+                    binary[cluster][self.tag_to_idx[cluster][tag]] = 1.0
+        return binary
+    
     def get_train_item(self, index):
         song = self.songs[index]
         tag_list = song[-1]
-        binary = self.tag_to_binary(tag_list)
-        text = self.load_text(tag_list)
-        audio_tensor = self.audio_load(song[0])
+        if self.disentangle:
+            text, cluser_mask = self.load_text_cluster(tag_list)
+            binary = self.tag_cluster_to_binary(text)
+        else:
+            text, cluser_mask = self.load_text(tag_list), None
+            binary = self.tag_to_binary(tag_list)
+        # audio_tensor = self.audio_load(song[0])
+        audio_tensor = torch.rand(self.input_length)
         return {
             "audio":audio_tensor, 
             "binary":binary, 
-            "text":text
-            }
+            "text":text,
+            "cluster_mask":cluser_mask
+        }
 
     def get_eval_item(self, index):
         song = self.songs[index]
@@ -131,11 +185,21 @@ class ECALS_Dataset(Dataset):
     def batch_processor(self, batch):
         # batch = list of dictionary
         audio = [item_dict['audio'] for item_dict in batch]
-        binary = [item_dict['binary'] for item_dict in batch]
         audios = torch.stack(audio)
-        binarys = torch.tensor(np.stack(binary))
+        if self.disentangle:
+            binary = dict()
+            for cluster in CLUSTERS:
+                binary[cluster] = [item['binary'][cluster] for item in batch]
+            binarys = dict()
+            for cluster in CLUSTERS:
+                binarys[cluster] = torch.tensor(np.stack(binary[cluster]))
+            cluster_mask = torch.tensor(np.stack([item['cluster_mask'] for item in batch]))
+        else:
+            binary = [item_dict['binary'] for item_dict in batch]
+            binarys = torch.tensor(np.stack(binary))
+            cluster_mask = None
         text, text_mask = self._text_preprocessor(batch, "text")
-        return {"audio":audios, "binary":binarys, "text":text, "text_mask":text_mask}
+        return {"audio":audios, "binary":binarys, "text":text, "text_mask":text_mask, "cluster_mask":cluster_mask}
     
     def _text_preprocessor(self, batch, target_text):
         if self.text_type == "bert":

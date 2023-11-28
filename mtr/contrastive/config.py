@@ -1,19 +1,26 @@
 import argparse
 
+
+CLUSTERS = ['genre', 'culture', 'mood', 'instrument']
+
 def get_parser():
     parser = argparse.ArgumentParser(description='PyTorch MSD Training')
 
-    parser.add_argument('--data_path', type=str, default="../../dataset.nosync/")
+    parser.add_argument('--data_path', type=str, default="dataset.nosync/")
 
     parser.add_argument('--framework', type=str, default="contrastive") # or transcription
     parser.add_argument("--text_backbone", default="bert-base-uncased", type=str)
     parser.add_argument('--arch', default='transformer')
     
-    parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+    parser.add_argument('-j', '--workers', default=0, type=int, metavar='N',
                         help='number of data loading workers')
     parser.add_argument('--epochs', default=200, type=int, metavar='N',
                         help='number of total epochs to run')
-    parser.add_argument('-b', '--batch-size', default=1, type=int, metavar='N')
+    parser.add_argument('--warmup_epochs', default=10, type=int, metavar='N',
+                    help='number of total epochs to run')
+    parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+                    help='manual epoch number (useful on restarts)')
+    parser.add_argument('-b', '--batch-size', default=2, type=int, metavar='N')
     parser.add_argument('--world-size', default=1, type=int,
                         help='number of nodes for distributed training')
     parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
@@ -53,5 +60,9 @@ def get_parser():
     parser.add_argument("--mlp_dim", default=128, type=int)
     parser.add_argument("--text_type", default="bert", type=str)
     parser.add_argument("--text_rep", default="caption", type=str)
+
+    # disentalngement
+    parser.add_argument("--disentangle", action='store_true')
+    parser.add_argument("--freeze", action='store_true')
 
     return parser
