@@ -44,11 +44,9 @@ class ContrastiveModel(nn.Module):
             h_text = self.encode_bert_text(text, text_mask)
         elif self.text_type == "glove":
             h_text = self.encode_glove_text(text)
-        audio_loss = self.head(h_audio, h_text)
-        text_loss = self.head(h_text, h_audio)
+        audio_loss, audio_acc = self.head(h_audio, h_text, cluster_mask)
+        text_loss, text_acc = self.head(h_text, h_audio, cluster_mask)
         loss = (audio_loss + text_loss) / 2
-        audio_acc = self.head.acc(h_audio, h_text)
-        text_acc = self.head.acc(h_text, h_audio)
         return loss, audio_acc, text_acc, self.logit_scale
         
     def encode_audio(self, audio):
@@ -63,9 +61,10 @@ class ContrastiveModel(nn.Module):
 
     def encode_bert_text(self, text, text_mask):
         text_emb = self.text_encoder(input_ids=text, attention_mask=text_mask)
-        h_text = self.t_latent(text_emb['last_hidden_state'][:,0,:])
+        text_emb = text_emb['last_hidden_state'][:,0,:].view(len(CLUSTERS), -1, self.text_dim)
+        h_text = self.t_latent(text_emb)
         if self.disentangle:
-            z_text = torch.stack([self.text_projector[c](h_text) for c in CLUSTERS])
+            z_text = torch.stack([self.text_projector[c](h_text[i]) for i, c in enumerate(CLUSTERS)])
         else:
             z_text = self.text_projector(h_text)
         return z_text

@@ -151,8 +151,8 @@ class ECALS_Dataset(Dataset):
         else:
             text, cluser_mask = self.load_text(tag_list), None
             binary = self.tag_to_binary(tag_list)
-        # audio_tensor = self.audio_load(song[0])
-        audio_tensor = torch.rand(self.input_length)
+        audio_tensor = self.audio_load(song[0])
+        # audio_tensor = torch.rand(self.input_length)
         return {
             "audio":audio_tensor, 
             "binary":binary, 
@@ -203,10 +203,16 @@ class ECALS_Dataset(Dataset):
     
     def _text_preprocessor(self, batch, target_text):
         if self.text_type == "bert":
-            batch_text = [", ".join(item_dict[target_text]) for item_dict in batch]
-            encoding = self.text_preprocessor.batch_encode_plus(batch_text, padding='longest', max_length=64, truncation=True, return_tensors="pt")
-            text = encoding['input_ids']
-            text_mask = encoding['attention_mask']
+            if self.disentangle:
+                batch_text = [", ".join(item[target_text][cluster]) for cluster in CLUSTERS for item in batch]
+                encoding = self.text_preprocessor.batch_encode_plus(batch_text, padding='longest', max_length=64, truncation=True, return_tensors="pt")
+                text = encoding['input_ids']
+                text_mask = encoding['attention_mask']
+            else:
+                batch_text = [", ".join(item_dict[target_text]) for item_dict in batch]
+                encoding = self.text_preprocessor.batch_encode_plus(batch_text, padding='longest', max_length=64, truncation=True, return_tensors="pt")
+                text = encoding['input_ids']
+                text_mask = encoding['attention_mask']
         elif self.text_type == "glove":
             batch_emb = []
             batch_text = [item_dict[target_text] for item_dict in batch]
@@ -214,7 +220,7 @@ class ECALS_Dataset(Dataset):
                 tag_seq_emb = [np.array(self.text_preprocessor[token]).astype('float32') for token in tag_seq]
                 batch_emb.append(torch.from_numpy(np.mean(tag_seq_emb, axis=0)))
             text = torch.stack(batch_emb)
-            text_mask = None    
+            text_mask = None
         return text, text_mask
             
     def __len__(self):

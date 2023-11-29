@@ -22,7 +22,7 @@ class CLIPHead(nn.Module):
         self.criterion = nn.CrossEntropyLoss()
         self.logit_scale = logit_scale
 
-    def forward(self, h1, h2):
+    def forward(self, h1, h2, cluster_mask=None):
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             h1 = SyncFunction.apply(h1)
             h2 = SyncFunction.apply(h2)
@@ -34,32 +34,28 @@ class CLIPHead(nn.Module):
             logits = torch.einsum('nc,mc->nm', [h1, h2]) * temperature.to(device)
             N = logits.shape[0]  # batch size per GPU
             labels = torch.arange(N, dtype=torch.long, device=device)
+            loss = F.cross_entropy(logits, labels)
+            acc = self.acc(logits, labels)
         else:  # multiple clusters
             logits = torch.einsum('knc,kmc->knm', [h1, h2]) * temperature.to(device)
             M, N = logits.shape[0:2]  # cluster size, batch size per GPU
             logits = logits.permute(1, 2, 0)
             labels = torch.arange(N, dtype=torch.long, device=device).unsqueeze(-1).repeat(1, M)
-        return F.cross_entropy(logits, labels)
+            loss = F.cross_entropy(logits, labels, reduction='none')
+            if cluster_mask is not None:
+                loss = loss * cluster_mask
+                loss = loss.sum() / cluster_mask.sum()
+            acc = self.acc(logits, labels, cluster_mask)
+        return loss, acc
     
-    def acc(self, h1, h2):
-        device = h1.device
-        temperature = torch.clamp(self.logit_scale.exp(), max=100)
-        h1 = F.normalize(h1, dim=-1)
-        h2 = F.normalize(h2, dim=-1)
-        if h1.ndim == 2:
-            logits = torch.einsum('nc,mc->nm', [h1, h2]) * temperature.to(device)
-            N = logits.shape[0]  # batch size per GPU
-            y_pred = logits.max(dim=-1)[1]
-            target = torch.arange(N, dtype=torch.long, device=device)
-            train_acc = torch.sum(y_pred == target)
-            acc = train_acc / N
+    def acc(self, logits, target, cluster_mask=None):
+        y_pred = logits.max(dim=1)[1]
+        if cluster_mask is not None:
+            train_acc = torch.sum((y_pred == target) * cluster_mask)
+            acc = train_acc / cluster_mask.sum()
         else:
-            logits = torch.einsum('knc,kmc->knm', [h1, h2]) * temperature.to(device)
-            M, N = logits.shape[0:2]  # cluster size, batch size per GPU
-            y_pred = logits.max(dim=-1)[1]
-            target = torch.arange(N, dtype=torch.long, device=device).repeat(M, 1)
             train_acc = torch.sum(y_pred == target)
-            acc = train_acc / (N * M)
+            acc = train_acc / train_acc.shape[0]
         return acc
 
 class ContrastiveHead(nn.Module):

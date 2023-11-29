@@ -69,25 +69,29 @@ def cluster_song():
         cluster_tags[song] = defaultdict(list)
         for tag in song_tags[song]:
             c = cluster[tag]
-            cluster_tags[song][c].append(tag)
+            if tag not in cluster_tags[song][c]:
+                cluster_tags[song][c].append(tag)
             if tag in extra:
                 c2, t = extra[tag]
-                cluster_tags[song][c2].append(t)
+                if t not in cluster_tags[song][c2]:
+                    cluster_tags[song][c2].append(t)
     json.dump(cluster_tags, open('dataset.nosync/clustered_song_tags.json', 'w'))
 
 def cluster_tag():
     with open('dataset.nosync/tag_cluster.json') as f:
         tag_cluster, extra = json.load(f)
-    clusters = defaultdict(list)
+    clusters = defaultdict(set)
     for t, c in tag_cluster.items():
-        clusters[c].append(t)
+        clusters[c].add(t)
     for tag in extra:
         c, t = extra[tag]
-        clusters[c].append(t)
+        clusters[c].add(t)
+    for c in clusters:
+        clusters[c] = list(clusters[c])
     json.dump(clusters, open('dataset.nosync/clustered_tags.json', 'w'), indent=4)
 
 
 if __name__ == '__main__':
     # cluster()
-    # cluster_song()
-    cluster_tag()
+    cluster_song()
+    # cluster_tag()

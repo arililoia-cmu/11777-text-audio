@@ -205,7 +205,7 @@ def train(train_loader, model, optimizer, epoch, logger, args):
         text = batch['text']
         text_mask = batch['text_mask']
         cluster_mask = batch['cluster_mask']
-        if args.gpu is not None:
+        if args.device == 'cuda':
             audio = audio.to(args.device, non_blocking=True)
             text = text.to(args.device, non_blocking=True)
             if torch.is_tensor(text_mask):
@@ -234,13 +234,15 @@ def validate(val_loader, model, epoch, args):
         text = batch['text']
         text_mask = batch['text_mask']
         cluster_mask = batch['cluster_mask']
-        if args.gpu is not None:
+        if args.device == 'cuda':
             audio = audio.to(args.device, non_blocking=True)
             text = text.to(args.device, non_blocking=True)
             if torch.is_tensor(text_mask):
                 text_mask = text_mask.to(args.device, non_blocking=True)
+            if torch.is_tensor(cluster_mask):
+                cluster_mask = cluster_mask.to(args.device, non_blocking=True)
         with torch.no_grad():
-            loss, audio_acc, text_acc, _ = model(audio, text, text_mask)
+            loss, audio_acc, text_acc, _ = model(audio, text, text_mask, cluster_mask)
         epoch_end_loss.append(loss.detach().cpu())
         audio_accs.append(audio_acc.detach().cpu())
         text_accs.append(text_acc.detach().cpu())
