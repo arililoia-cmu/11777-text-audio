@@ -196,10 +196,10 @@ def main_worker(ngpus_per_node, args):
 
 def train(train_loader, model, optimizer, epoch, logger, args):
     train_losses = AverageMeter('Train Loss', ':.4e')
-    progress = ProgressMeter(len(train_loader),[train_losses],prefix="Epoch: [{}]".format(epoch))
+    # progress = ProgressMeter(len(train_loader),[train_losses],prefix="Epoch: [{}]".format(epoch))
     iters_per_epoch = len(train_loader)
     model.train()
-    for data_iter_step, batch in enumerate(train_loader):
+    for data_iter_step, batch in enumerate(tqdm(train_loader)):
         lr = adjust_learning_rate(optimizer, data_iter_step / iters_per_epoch + epoch, args)
         audio = batch['audio']
         text = batch['text']
@@ -221,15 +221,15 @@ def train(train_loader, model, optimizer, epoch, logger, args):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if data_iter_step % args.print_freq == 0:
-            progress.display(data_iter_step)
+        # if data_iter_step % args.print_freq == 0:
+        #     progress.display(data_iter_step)
 
 def validate(val_loader, model, epoch, args):
-    losses_val = AverageMeter('Valid Loss', ':.4e')
-    progress_val = ProgressMeter(len(val_loader),[losses_val],prefix="Epoch: [{}]".format(epoch))
+    # losses_val = AverageMeter('Valid Loss', ':.4e')
+    # progress_val = ProgressMeter(len(val_loader),[losses_val],prefix="Epoch: [{}]".format(epoch))
     model.eval()
     epoch_end_loss, audio_accs, text_accs = [], [], []
-    for data_iter_step, batch in enumerate(val_loader):
+    for data_iter_step, batch in enumerate(tqdm(val_loader)):
         audio = batch['audio']
         text = batch['text']
         text_mask = batch['text_mask']
@@ -246,9 +246,9 @@ def validate(val_loader, model, epoch, args):
         epoch_end_loss.append(loss.detach().cpu())
         audio_accs.append(audio_acc.detach().cpu())
         text_accs.append(text_acc.detach().cpu())
-        losses_val.step(loss.item(), audio.size(0))
-        if data_iter_step % args.print_freq == 0:
-            progress_val.display(data_iter_step)
+        # losses_val.step(loss.item(), audio.size(0))
+        # if data_iter_step % args.print_freq == 0:
+            # progress_val.display(data_iter_step)
     val_loss = torch.stack(epoch_end_loss).mean(0, False)
     audio_accs = torch.stack(audio_accs).mean(0, False)
     text_accs = torch.stack(text_accs).mean(0, False)

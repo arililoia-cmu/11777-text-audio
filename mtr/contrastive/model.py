@@ -1,8 +1,6 @@
 import torch
-import torchaudio
-import math
 import numpy as np
-from torch import Tensor, nn
+from torch import nn
 import sys
 from pathlib import Path
 
@@ -22,8 +20,8 @@ class ContrastiveModel(nn.Module):
         self.logit_scale = nn.Parameter(self.init_temperature, requires_grad=True)
         self.head = CLIPHead(logit_scale=self.logit_scale)
         if disentangle:
-            self.audio_projector = dict()
-            self.text_projector = dict()
+            self.audio_projector = nn.ModuleDict()
+            self.text_projector = nn.ModuleDict()
             for c in CLUSTERS:
                 self.audio_projector[c] = nn.Sequential(nn.LayerNorm(audio_dim), nn.Linear(audio_dim, mlp_dim, bias=False))
                 self.text_projector[c] = nn.Sequential(nn.LayerNorm(text_dim), nn.Linear(text_dim, mlp_dim, bias=False))
@@ -61,11 +59,14 @@ class ContrastiveModel(nn.Module):
 
     def encode_bert_text(self, text, text_mask):
         text_emb = self.text_encoder(input_ids=text, attention_mask=text_mask)
-        text_emb = text_emb['last_hidden_state'][:,0,:].view(len(CLUSTERS), -1, self.text_dim)
-        h_text = self.t_latent(text_emb)
+        
         if self.disentangle:
+            text_emb = text_emb['last_hidden_state'][:,0,:].view(len(CLUSTERS), -1, self.text_dim)
+            h_text = self.t_latent(text_emb)
             z_text = torch.stack([self.text_projector[c](h_text[i]) for i, c in enumerate(CLUSTERS)])
         else:
+            text_emb = text_emb['last_hidden_state'][:,0,:]
+            h_text = self.t_latent(text_emb)
             z_text = self.text_projector(h_text)
         return z_text
 

@@ -75,7 +75,7 @@ class ECALS_Dataset(Dataset):
         audio = np.load(path, mmap_mode='r')
         if train:
             idx = np.random.randint(0, audio.shape[-1] - self.input_length)
-            audio = audio[idx:idx+self.input_length]
+            audio = np.array(audio[idx:idx+self.input_length])
         else:
             hop = (len(audio) - self.input_length) // self.num_chunks
             audio = np.stack(
@@ -151,7 +151,7 @@ class ECALS_Dataset(Dataset):
         else:
             text, cluser_mask = self.load_text(tag_list), None
             binary = self.tag_to_binary(tag_list)
-        audio_tensor = self.audio_load(song[0])
+        audio_tensor = self.load_audio(song[0])
         # audio_tensor = torch.rand(self.input_length)
         return {
             "audio":audio_tensor, 
@@ -167,7 +167,8 @@ class ECALS_Dataset(Dataset):
         text = self.load_text(tag_list)
         tags = self.tags
         track_id = song[0]
-        audio = self.load_audio(track_id, train=False)
+        audio = self.load_audio(song[0], train=False)
+        # audio = torch.rand((self.num_chunks, self.input_length))
         return {
             "audio":audio, 
             "track_id":track_id, 
