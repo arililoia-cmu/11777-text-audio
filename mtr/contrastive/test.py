@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -9,20 +10,19 @@ import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 from transformers import AutoModel, AutoTokenizer, set_seed
-from sklearn import metrics
 from tqdm import tqdm
 import json
 import pandas as pd
 import time
 
-sys.path.append('..')
+sys.path.append(Path(__file__).parent.parent.parent.as_posix())
 from dataset import ECALS_Dataset
 from config import get_parser
 from model import ContrastiveModel
-from modules.audio_rep import TFRep
-from modules.tokenizer import ResFrontEnd, SpecPatchEmbed
-from modules.encoder import MusicTransformer
-from utils.eval_utils import single_query_evaluation, multi_query_evaluation, _text_representation
+from mtr.modules.audio_rep import TFRep
+from mtr.modules.tokenizer import ResFrontEnd, SpecPatchEmbed
+from mtr.modules.encoder import MusicTransformer
+from mtr.utils.eval_utils import single_query_evaluation, multi_query_evaluation, _text_representation
 
 TAGNAMES = [
     'rock','pop','indie','alternative','electronic','hip hop','metal','jazz','punk',
@@ -39,6 +39,19 @@ def main():
     print("Start Testing")
     parser = get_parser()
     args = parser.parse_args()
+
+    if torch.cuda.is_available():
+        device = "cuda"
+        nprocess = torch.cuda.device_count()
+    # elif torch.backends.mps.is_available():
+    #     device = "mps"
+    #     nprocess = 1
+    else:
+        device = "cpu"
+        nprocess = 1
+    args.device = device
+    print(f"Device: {device}, Number of processes: {nprocess}")
+
     main_worker(args)
 
 def main_worker(args):
@@ -83,20 +96,21 @@ def main_worker(args):
         audio_dim= args.audio_dim,
         text_dim= args.text_dim,
         mlp_dim= args.mlp_dim,
-        temperature = args.temperature
+        temperature = args.temperature,
+        disentangle = args.disentangle
     )
     save_dir = f"exp/{args.text_type}_{args.text_rep}"
     # save_dir = f"exp/{args.arch}_{args.frontend}_{args.mix_type}_{args.audio_rep}/{args.text_type}_{args.text_rep}"
-    pretrained_object = torch.load(f'{save_dir}/best.pth', map_location='cpu')
-    state_dict = pretrained_object['state_dict']
-    for k in list(state_dict.keys()):
-        if k.startswith('module.'):
-            state_dict[k[len("module."):]] = state_dict[k]
-        del state_dict[k]
-    model.load_state_dict(state_dict, strict=False)
+    # pretrained_object = torch.load(f'{save_dir}/best.pth', map_location='cpu')
+    # state_dict = pretrained_object['state_dict']
+    # for k in list(state_dict.keys()):
+    #     if k.startswith('module.'):
+    #         state_dict[k[len("module."):]] = state_dict[k]
+    #     del state_dict[k]
+    # model.load_state_dict(state_dict, strict=False)
 
-    torch.cuda.set_device(args.gpu)
-    model = model.cuda(args.gpu)
+    
+    model = model.to(args.device)
     cudnn.benchmark = True
 
     test_dataset= ECALS_Dataset(
@@ -125,8 +139,8 @@ def main_worker(args):
         groudturths.append(batch['binary'])
         input_text = _text_representation(args, list_of_tag, tokenizer)
         if args.gpu is not None:
-            audio = audio.cuda(args.gpu, non_blocking=True)
-            input_text = input_text.cuda(args.gpu, non_blocking=True)
+            audio = audio.to(args.device, non_blocking=True)
+            input_text = input_text.to(args.device, non_blocking=True)
         with torch.no_grad():
             z_audio = model.encode_audio(audio.squeeze(0))
             if args.text_type == "bert":
@@ -150,7 +164,7 @@ def main_worker(args):
     for tag in test_dataset.tags:
         input_text = _text_representation(args, tag, tokenizer)
         if args.gpu is not None:
-            input_text = input_text.cuda(args.gpu, non_blocking=True)
+            input_text = input_text.to(args.device, non_blocking=True)
         with torch.no_grad():
             if args.text_type == "bert":
                 z_tag = model.encode_bert_text(input_text, None)
@@ -158,7 +172,6 @@ def main_worker(args):
                 z_tag = model.encode_glove_text(input_text)
         tag_embs.append(z_tag.detach().cpu())
         tag_dict[tag] = z_tag.detach().cpu()
-
 
     torch.save(audio_dict, os.path.join(save_dir, "audio_embs.pt"))
     torch.save(tag_dict, os.path.join(save_dir, "tag_embs.pt"))

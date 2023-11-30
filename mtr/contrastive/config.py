@@ -14,13 +14,13 @@ def get_parser():
     
     parser.add_argument('-j', '--workers', default=0, type=int, metavar='N',
                         help='number of data loading workers')
-    parser.add_argument('--epochs', default=100, type=int, metavar='N',
+    parser.add_argument('--epochs', default=50, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--warmup_epochs', default=5, type=int, metavar='N',
                     help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-    parser.add_argument('-b', '--batch-size', default=2, type=int, metavar='N')
+    parser.add_argument('-b', '--batch-size', default=24, type=int, metavar='N')
     parser.add_argument('--world-size', default=1, type=int,
                         help='number of nodes for distributed training')
     parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
@@ -64,5 +64,6 @@ def get_parser():
     # disentalngement
     parser.add_argument("--disentangle", action='store_true')
     parser.add_argument("--freeze", action='store_true')
+    parser.add_argument("--subset", action='store_true')
 
     return parser

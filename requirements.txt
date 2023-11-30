@@ -1,0 +1,6 @@
+transformers
+einops
+omegaconf
+tensorboard
+scikit-learn
+astropy

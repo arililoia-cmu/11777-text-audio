@@ -1,5 +1,5 @@
 import json
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 def cluster():
     with open('dataset.nosync/cluster.txt') as f:
@@ -90,8 +90,24 @@ def cluster_tag():
         clusters[c] = list(clusters[c])
     json.dump(clusters, open('dataset.nosync/clustered_tags.json', 'w'), indent=4)
 
+def stat():
+    with open('dataset.nosync/clustered_song_tags.json') as f:
+        song_tags = json.load(f)
+    
+    tag_count = defaultdict(int)
+    cluster_count = defaultdict(int)
+    for song in song_tags:
+        for c in song_tags[song]:
+            for tag in song_tags[song][c]:
+                tag_count[tag] += 1
+            cluster_count[c] += len(song_tags[song][c])
+    tag_count = OrderedDict(sorted(tag_count.items(), key=lambda x: x[1], reverse=True))
+    cluster_count = OrderedDict(sorted(cluster_count.items(), key=lambda x: x[1], reverse=True))
+    json.dump([cluster_count, tag_count], open('dataset.nosync/cluster_stat.json', 'w'), indent=4)
+
 
 if __name__ == '__main__':
     # cluster()
-    cluster_song()
+    # cluster_song()
     # cluster_tag()
+    stat()

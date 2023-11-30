@@ -6,17 +6,21 @@ import torch
 from torch.utils.data import Dataset
 from config import CLUSTERS
 
-
 class ECALS_Dataset(Dataset):
     def __init__(self, data_path, split, sr, duration, num_chunks,
                  text_preprocessor=None, text_type="bert", text_rep="stochastic",
-                 disentangle=False):
+                 disentangle=False, subset=False):
         super().__init__()
         self.data_path = data_path
         self.split = split
         self.input_length = int(sr * duration)
         self.num_chunks = num_chunks
         self.disentangle = disentangle
+        self.subset = subset
+        if self.subset:
+            self.data_path = os.path.join(self.data_path, 'small')
+        else:
+            self.data_path = os.path.join(self.data_path, 'full')
         
         self.get_split()
         self.text_preprocessor = text_preprocessor
@@ -37,13 +41,17 @@ class ECALS_Dataset(Dataset):
         with open(split_path, 'r') as f:
             split = json.load(f)
             if self.split == 'TRAIN':
-                track = split['train_track'] + split['extra_track']
+                if self.subset:
+                    track = split['train_track']
+                else:
+                    track = split['train_track'] + split['extra_track']
             elif self.split == 'VALID':
                 track = split['valid_track']
             elif self.split == 'TEST':
                 track = split['test_track']
             else:
                 raise ValueError(f'Unexpected split name: {self.split}')
+            
         
         with open(song_tag_path, 'r') as f:
             song_tags = json.load(f)
@@ -62,7 +70,10 @@ class ECALS_Dataset(Dataset):
         with open(split_tag_path, 'r') as f:
             split_tags = json.load(f)
             if self.split == "TRAIN":
-                self.split_tags = split_tags['train_track'] + split_tags['extra_track']
+                if self.subset:
+                    self.split_tags = split_tags['train_track']
+                else:
+                    self.split_tags = split_tags['train_track'] + split_tags['extra_track']
             elif self.split == "VALID":
                 self.split_tags = split_tags['valid_track']
             elif self.split == "TEST":
@@ -147,15 +158,12 @@ class ECALS_Dataset(Dataset):
         tag_list = song[-1]
         if self.disentangle:
             text, cluser_mask = self.load_text_cluster(tag_list)
-            binary = self.tag_cluster_to_binary(text)
         else:
             text, cluser_mask = self.load_text(tag_list), None
-            binary = self.tag_to_binary(tag_list)
         audio_tensor = self.load_audio(song[0])
         # audio_tensor = torch.rand(self.input_length)
         return {
-            "audio":audio_tensor, 
-            "binary":binary, 
+            "audio":audio_tensor,
             "text":text,
             "cluster_mask":cluser_mask
         }

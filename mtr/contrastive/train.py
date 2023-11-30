@@ -130,7 +130,8 @@ def main_worker(ngpus_per_node, args):
         text_preprocessor= tokenizer,
         text_type=args.text_type,
         text_rep = args.text_rep,
-        disentangle = args.disentangle
+        disentangle = args.disentangle,
+        subset = args.subset
     )
     val_dataset = ECALS_Dataset(
         data_path = args.data_path,
@@ -141,7 +142,8 @@ def main_worker(ngpus_per_node, args):
         text_preprocessor= tokenizer,
         text_type=args.text_type,
         text_rep = args.text_rep,
-        disentangle = args.disentangle
+        disentangle = args.disentangle,
+        subset = args.subset
     )
 
     if args.distributed:
