@@ -11,4 +11,5 @@ dataset.nosync/npy/
 __pycache__/
 *.csv
 *.tfevents.*
-*.pt
+*.pt,
+wandb/

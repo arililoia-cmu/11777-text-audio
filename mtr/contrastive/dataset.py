@@ -17,10 +17,6 @@ class ECALS_Dataset(Dataset):
         self.num_chunks = num_chunks
         self.disentangle = disentangle
         self.subset = subset
-        if self.subset:
-            self.data_path = os.path.join(self.data_path, 'small')
-        else:
-            self.data_path = os.path.join(self.data_path, 'full')
         
         self.get_split()
         self.text_preprocessor = text_preprocessor
@@ -29,14 +25,19 @@ class ECALS_Dataset(Dataset):
         print(f"Dataset: {self.split} split, {len(self.songs)} songs")
     
     def get_split(self):
-        split_path = os.path.join(self.data_path, 'split.json')
-        if self.disentangle:
-            song_tag_path = os.path.join(self.data_path, 'clustered_song_tags.json')
-            tag_path = os.path.join(self.data_path, 'clustered_tags.json')
+        if self.subset:
+            path = os.path.join(self.data_path, 'small')
         else:
-            song_tag_path = os.path.join(self.data_path, 'song_tags.json')
-            tag_path = os.path.join(self.data_path, 'ecals_tags.json')
-        split_tag_path = os.path.join(self.data_path, 'split_tags.json')
+            path = os.path.join(self.data_path, 'full')
+        split_path = os.path.join(path, 'split.json')
+        if self.disentangle:
+            song_tag_path = os.path.join(path, 'clustered_song_tags.json')
+            tag_path = os.path.join(path, 'clustered_tags.json')
+            split_tag_path = os.path.join(path, 'clustered_split_tags.json')
+        else:
+            song_tag_path = os.path.join(path, 'song_tags.json')
+            tag_path = os.path.join(path, 'all_tags.json')
+            split_tag_path = os.path.join(path, 'split_tags.json')
         
         with open(split_path, 'r') as f:
             split = json.load(f)
@@ -52,7 +53,6 @@ class ECALS_Dataset(Dataset):
             else:
                 raise ValueError(f'Unexpected split name: {self.split}')
             
-        
         with open(song_tag_path, 'r') as f:
             song_tags = json.load(f)
             self.songs = [(k, song_tags[k]) for k in track]
@@ -196,19 +196,19 @@ class ECALS_Dataset(Dataset):
         audio = [item_dict['audio'] for item_dict in batch]
         audios = torch.stack(audio)
         if self.disentangle:
-            binary = dict()
-            for cluster in CLUSTERS:
-                binary[cluster] = [item['binary'][cluster] for item in batch]
-            binarys = dict()
-            for cluster in CLUSTERS:
-                binarys[cluster] = torch.tensor(np.stack(binary[cluster]))
+            # binary = dict()
+            # for cluster in CLUSTERS:
+            #     binary[cluster] = [item['binary'][cluster] for item in batch]
+            # binarys = dict()
+            # for cluster in CLUSTERS:
+            #     binarys[cluster] = torch.tensor(np.stack(binary[cluster]))
             cluster_mask = torch.tensor(np.stack([item['cluster_mask'] for item in batch]))
         else:
-            binary = [item_dict['binary'] for item_dict in batch]
-            binarys = torch.tensor(np.stack(binary))
+            # binary = [item_dict['binary'] for item_dict in batch]
+            # binarys = torch.tensor(np.stack(binary))
             cluster_mask = None
         text, text_mask = self._text_preprocessor(batch, "text")
-        return {"audio":audios, "binary":binarys, "text":text, "text_mask":text_mask, "cluster_mask":cluster_mask}
+        return {"audio":audios, "binary": None, "text":text, "text_mask":text_mask, "cluster_mask":cluster_mask}
     
     def _text_preprocessor(self, batch, target_text):
         if self.text_type == "bert":

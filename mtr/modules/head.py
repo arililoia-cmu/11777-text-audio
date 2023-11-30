@@ -55,7 +55,7 @@ class CLIPHead(nn.Module):
             acc = train_acc / cluster_mask.sum()
         else:
             train_acc = torch.sum(y_pred == target)
-            acc = train_acc / train_acc.shape[0]
+            acc = train_acc / logits.shape[0]
         return acc
 
 class ContrastiveHead(nn.Module):

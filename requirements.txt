@@ -4,3 +4,4 @@ omegaconf
 tensorboard
 scikit-learn
 astropy
+wandb

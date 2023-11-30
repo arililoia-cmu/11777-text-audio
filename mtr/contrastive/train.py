@@ -13,11 +13,11 @@ import torch.utils.data
 import torch.utils.data.distributed
 from transformers import AutoModel, AutoTokenizer, set_seed
 from tqdm import tqdm, trange
-import time
 import random
 import builtins
 import shutil
 import math
+import wandb
 
 sys.path.append(Path(__file__).parent.parent.parent.as_posix())
 from dataset import ECALS_Dataset
@@ -43,6 +43,13 @@ def main():
         nprocess = 1
     args.device = device
     print(f"Device: {device}, Number of processes: {nprocess}")
+
+    if args.log:
+        wandb.init(project="disentangle", group="disentangle" if args.disentangle else "baseline")
+        wandb.config.update(args)
+        wandb.define_metric("epoch")
+        wandb.define_metric("val/*", step_metric="epoch")
+    
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -174,30 +181,36 @@ def main_worker(ngpus_per_node, args):
     save_dir = f"mtr/exp/{args.text_type}_{args.text_rep}"
     logger = Logger(save_dir)
     save_hparams(args, save_dir)
+    model_name = 'disentangle' if args.disentangle else 'base' 
 
     best_val_loss = np.inf
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
             val_sampler.set_epoch(epoch)
+        
         # train for one epoch
         train(train_loader, model, optimizer, epoch, logger, args)
         val_loss, audio_accs, text_accs = validate(val_loader, model, epoch, args)
-        logger.log_val_loss(val_loss, epoch)
-        logger.log_audio_acc(audio_accs, epoch)
-        logger.log_text_acc(text_accs, epoch)
+        
+        if args.log:
+            # logger.log_val_loss(val_loss, epoch)
+            # logger.log_audio_acc(audio_accs, epoch)
+            # logger.log_text_acc(text_accs, epoch)
+            wandb.log({"epoch": epoch, "val/loss": val_loss.item(), "val/audio_acc": audio_accs.item(), "val/text_acc": text_accs.item()})
+        
         # save model
         if val_loss < best_val_loss:
-            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/best.pth')
+            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}best.pth')
             best_val_loss = val_loss
 
-        earlystopping_callback(val_loss, best_val_loss)
-        if earlystopping_callback.early_stop:
-            print("We are at epoch:", epoch)
-            break
+        # earlystopping_callback(val_loss, best_val_loss)
+        # if earlystopping_callback.early_stop:
+        #     print("We are at epoch:", epoch)
+        #     break
 
 def train(train_loader, model, optimizer, epoch, logger, args):
-    train_losses = AverageMeter('Train Loss', ':.4e')
+    # train_losses = AverageMeter('Train Loss', ':.4e')
     # progress = ProgressMeter(len(train_loader),[train_losses],prefix="Epoch: [{}]".format(epoch))
     iters_per_epoch = len(train_loader)
     model.train()
@@ -214,15 +227,21 @@ def train(train_loader, model, optimizer, epoch, logger, args):
                 text_mask = text_mask.to(args.device, non_blocking=True)
             if torch.is_tensor(cluster_mask):
                 cluster_mask = cluster_mask.to(args.device, non_blocking=True)
+       
         # compute output
         loss, _, _, logit_scale = model(audio=audio, text=text, text_mask=text_mask, cluster_mask=cluster_mask)
-        train_losses.step(loss.item(), audio.size(0))
-        logger.log_train_loss(loss, epoch * iters_per_epoch + data_iter_step)
-        logger.log_logitscale(logit_scale, epoch * iters_per_epoch + data_iter_step)
-        logger.log_learning_rate(lr, epoch * iters_per_epoch + data_iter_step)
+        # train_losses.step(loss.item(), audio.size(0))
+        
+        if args.log:
+            # logger.log_train_loss(loss, epoch * iters_per_epoch + data_iter_step)
+            # logger.log_logitscale(logit_scale, epoch * iters_per_epoch + data_iter_step)
+            # logger.log_learning_rate(lr, epoch * iters_per_epoch + data_iter_step)
+            wandb.log({"train/loss": loss.item(), "train/lr": lr, "train/logit_scale": logit_scale.item()})
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
         # if data_iter_step % args.print_freq == 0:
         #     progress.display(data_iter_step)
 

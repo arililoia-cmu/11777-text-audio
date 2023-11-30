@@ -20,7 +20,7 @@ def get_parser():
                     help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-    parser.add_argument('-b', '--batch-size', default=24, type=int, metavar='N')
+    parser.add_argument('-b', '--batch-size', default=32, type=int, metavar='N')
     parser.add_argument('--world-size', default=1, type=int,
                         help='number of nodes for distributed training')
     parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
@@ -44,7 +44,7 @@ def get_parser():
                             'multi node data parallel training')
     
     # train detail
-    parser.add_argument("--duration", default=9.91, type=int)
+    parser.add_argument("--duration", default=5.0, type=float)
     parser.add_argument("--sr", default=16000, type=int)
     parser.add_argument("--num_chunks", default=3, type=int)
     parser.add_argument("--mel_dim", default=128, type=int)
@@ -65,5 +65,6 @@ def get_parser():
     parser.add_argument("--disentangle", action='store_true')
     parser.add_argument("--freeze", action='store_true')
     parser.add_argument("--subset", action='store_true')
+    parser.add_argument("--log", action='store_true')
 
     return parser

@@ -51,6 +51,20 @@ def subset_tags():
         cluster[c] = list(cluster[c])
     json.dump(cluster, open('small/clustered_tags.json', 'w'))
 
+    mix_song_tags = dict()
+    for song in sub_song_tags:
+        mix_song_tags[song] = set()
+        for c in sub_song_tags[song]:
+            mix_song_tags[song].update(sub_song_tags[song][c])
+        mix_song_tags[song] = list(mix_song_tags[song])
+    json.dump(mix_song_tags, open('small/song_tags.json', 'w'))
+    
+    tags = set()
+    for song in mix_song_tags:
+        tags.update(mix_song_tags[song])
+    tags = list(tags)
+    json.dump(tags, open('small/all_tags.json', 'w'), indent=4)
+
 def subset_tag_split():
     with open('small/split.json', 'r') as f:
         split = json.load(f)
@@ -58,15 +72,20 @@ def subset_tag_split():
     with open('small/clustered_song_tags.json', 'r') as f:
         song_tags = json.load(f)
     
+    clustered_split_tags = dict()
     split_tags = dict()
     for s in split:
-        split_tags[s] = defaultdict(set)
+        split_tags[s] = set()
+        clustered_split_tags[s] = defaultdict(set)
         for song in split[s]:
             for c in song_tags[song]:
-                split_tags[s][c] |= set(song_tags[song][c])
-        for c in split_tags[s]:
-            split_tags[s][c] = list(split_tags[s][c])
+                split_tags[s].update(song_tags[song][c])
+                clustered_split_tags[s][c] |= set(song_tags[song][c])
+        split_tags[s] = list(split_tags[s])
+        for c in clustered_split_tags[s]:
+            clustered_split_tags[s][c] = list(clustered_split_tags[s][c])
     json.dump(split_tags, open('small/split_tags.json', 'w'))
+    json.dump(clustered_split_tags, open('small/clustered_split_tags.json', 'w'))
 
 
 def subset_stat():
@@ -87,7 +106,7 @@ def subset_stat():
 
 
 if __name__ == '__main__':
-    subset_split([40000, 5000, 5000])
+    # subset_split([40000, 5000, 5000])
     subset_tags()
     subset_tag_split()
     subset_stat()
