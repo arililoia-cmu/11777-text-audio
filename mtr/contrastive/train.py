@@ -96,7 +96,8 @@ def main_worker(ngpus_per_node, args):
         frontend = frontend,
         audio_rep = args.audio_rep,
         attention_nlayers= args.attention_nlayers,
-        attention_ndim= args.attention_ndim
+        attention_ndim= args.attention_ndim,
+        dropout = args.dropout
     )
 
     '''Text Encoder'''
@@ -215,7 +216,7 @@ def train(train_loader, model, optimizer, epoch, logger, args):
     iters_per_epoch = len(train_loader)
     model.train()
     for data_iter_step, batch in enumerate(tqdm(train_loader)):
-        lr = adjust_learning_rate(optimizer, data_iter_step / iters_per_epoch + epoch, args)
+        lr = adjust_learning_rate(optimizer, (data_iter_step + 1) / iters_per_epoch + epoch, args)
         audio = batch['audio']
         text = batch['text']
         text_mask = batch['text_mask']
@@ -283,7 +284,7 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 def adjust_learning_rate(optimizer, epoch, args):
     """Decay the learning rate with half-cycle cosine after warmup"""
     if epoch < args.warmup_epochs:
-        lr = args.lr * epoch / args.warmup_epochs 
+        lr = args.lr * epoch / args.warmup_epochs
     else:
         lr = args.min_lr + (args.lr - args.min_lr) * 0.5 * \
             (1. + math.cos(math.pi * (epoch - args.warmup_epochs) / (args.epochs - args.warmup_epochs)))

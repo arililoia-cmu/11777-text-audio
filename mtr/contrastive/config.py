@@ -66,5 +66,6 @@ def get_parser():
     parser.add_argument("--freeze", action='store_true')
     parser.add_argument("--subset", action='store_true')
     parser.add_argument("--log", action='store_true')
+    parser.add_argument("--dropout", default=0.1, type=float)
 
     return parser
