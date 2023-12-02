@@ -26,18 +26,18 @@ class ContrastiveModel(nn.Module):
                 self.audio_projector[c] = nn.Sequential(nn.LayerNorm(audio_dim), nn.Linear(audio_dim, mlp_dim, bias=False))
                 self.text_projector[c] = nn.Sequential(nn.LayerNorm(text_dim), nn.Linear(text_dim, mlp_dim, bias=False))
                 for i in range(n_proj - 1):
-                    self.audio_projector[c].add_module(nn.ReLU())
-                    self.audio_projector[c].add_module(nn.Linear(mlp_dim, mlp_dim, bias=False))
-                    self.text_projector[c].add_module(nn.ReLU())
-                    self.text_projector[c].add_module(nn.Linear(mlp_dim, mlp_dim, bias=False))
+                    self.audio_projector[c].add_module(f'relu{i}', nn.ReLU())
+                    self.audio_projector[c].add_module(f'linear{i}', nn.Linear(mlp_dim, mlp_dim, bias=False))
+                    self.text_projector[c].add_module(f'relu{i}', nn.ReLU())
+                    self.text_projector[c].add_module(f'linear{i}', nn.Linear(mlp_dim, mlp_dim, bias=False))
         else:
             self.audio_projector = nn.Sequential(nn.LayerNorm(audio_dim), nn.Linear(audio_dim, mlp_dim, bias=False))
             self.text_projector =  nn.Sequential(nn.LayerNorm(text_dim), nn.Linear(text_dim, mlp_dim, bias=False))
             for i in range(n_proj - 1):
-                self.audio_projector.add_module(nn.ReLU())
-                self.audio_projector.add_module(nn.Linear(mlp_dim, mlp_dim, bias=False))
-                self.text_projector.add_module(nn.ReLU())
-                self.text_projector.add_module(nn.Linear(mlp_dim, mlp_dim, bias=False))
+                self.audio_projector.add_module(f'relu{i}', nn.ReLU())
+                self.audio_projector.add_module(f'linear{i}', nn.Linear(mlp_dim, mlp_dim, bias=False))
+                self.text_projector.add_module(f'relu{i}', nn.ReLU())
+                self.text_projector.add_module(f'linear{i}', nn.Linear(mlp_dim, mlp_dim, bias=False))
 
         # TODO: when freeze, make text projector larger
         self.audio_encoder.train()

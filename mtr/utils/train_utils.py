@@ -3,10 +3,10 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from omegaconf import DictConfig, OmegaConf
 
-def save_hparams(args, save_path):
+def save_hparams(args, save_path, name):
     save_config = OmegaConf.create(vars(args))
     os.makedirs(save_path, exist_ok=True)
-    OmegaConf.save(config=save_config, f= os.path.join(save_path, "hparams.yaml"))
+    OmegaConf.save(config=save_config, f= os.path.join(save_path, f"{name}_hparams.yaml"))
 
 class EarlyStopping():
     def __init__(self, tolerance=20, min_delta=1e-9):

@@ -184,11 +184,11 @@ def main_worker(ngpus_per_node, args):
     save_dir = args.save_path
     # logger = Logger(save_dir)
     logger = None
-    save_hparams(args, save_dir)
     if args.name:
         model_name = args.name
     else:
         model_name = 'disentangle' if args.disentangle else 'base'
+    save_hparams(args, save_dir, model_name)
     
     best_val_loss = np.inf
     for epoch in range(args.start_epoch, args.epochs):
@@ -211,6 +211,8 @@ def main_worker(ngpus_per_node, args):
             torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}_best.pth')
             best_val_loss = val_loss
         torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}_last.pth')
+        if args.epochs > 50 and epoch % 50 == 0:
+            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}_{epoch}.pth')
 
         # earlystopping_callback(val_loss, best_val_loss)
         # if earlystopping_callback.early_stop:
