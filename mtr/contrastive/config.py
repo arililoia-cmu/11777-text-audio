@@ -67,5 +67,8 @@ def get_parser():
     parser.add_argument("--subset", action='store_true')
     parser.add_argument("--log", action='store_true')
     parser.add_argument("--dropout", default=0.1, type=float)
+    parser.add_argument("--test", default="query", type=str)
+    parser.add_argument("--n_proj", default=1, type=int)
+    parser.add_argument("--model", default="best", type=str)
 
     return parser

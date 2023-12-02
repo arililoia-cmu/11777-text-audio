@@ -9,7 +9,7 @@ from config import CLUSTERS
 class ECALS_Dataset(Dataset):
     def __init__(self, data_path, split, sr, duration, num_chunks,
                  text_preprocessor=None, text_type="bert", text_rep="stochastic",
-                 disentangle=False, subset=False):
+                 disentangle=False, subset=False, test_mode='query'):
         super().__init__()
         self.data_path = data_path
         self.split = split
@@ -17,6 +17,7 @@ class ECALS_Dataset(Dataset):
         self.num_chunks = num_chunks
         self.disentangle = disentangle
         self.subset = subset
+        self.test_mode = test_mode
         
         self.get_split()
         self.text_preprocessor = text_preprocessor
@@ -186,7 +187,7 @@ class ECALS_Dataset(Dataset):
         }
 
     def __getitem__(self, index):
-        if (self.split=='TRAIN') or (self.split=='VALID'):
+        if self.split=='TRAIN' or self.split=='VALID' or self.test_mode=='loss':
             return self.get_train_item(index)
         else:
             return self.get_eval_item(index)

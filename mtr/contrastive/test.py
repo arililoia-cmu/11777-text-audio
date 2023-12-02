@@ -97,21 +97,22 @@ def main_worker(args):
         text_dim= args.text_dim,
         mlp_dim= args.mlp_dim,
         temperature = args.temperature,
-        disentangle = args.disentangle
+        disentangle = args.disentangle,
+        n_proj = args.n_proj
     )
-    save_dir = f"exp/{args.text_type}_{args.text_rep}"
-    # save_dir = f"exp/{args.arch}_{args.frontend}_{args.mix_type}_{args.audio_rep}/{args.text_type}_{args.text_rep}"
-    # pretrained_object = torch.load(f'{save_dir}/best.pth', map_location='cpu')
-    # state_dict = pretrained_object['state_dict']
-    # for k in list(state_dict.keys()):
-    #     if k.startswith('module.'):
-    #         state_dict[k[len("module."):]] = state_dict[k]
-    #     del state_dict[k]
-    # model.load_state_dict(state_dict, strict=False)
+    save_dir = "mtr/exp"
+    pretrained_object = torch.load(f'{save_dir}/{args.model}.pth', map_location='cpu')
+    state_dict = pretrained_object['state_dict']
+    for k in list(state_dict.keys()):
+        if k.startswith('module.'):
+            state_dict[k[len("module."):]] = state_dict[k]
+        del state_dict[k]
+    model.load_state_dict(state_dict, strict=False)
 
     
     model = model.to(args.device)
     cudnn.benchmark = True
+    model.eval()
 
     test_dataset= ECALS_Dataset(
         data_path = args.data_path,
@@ -121,14 +122,42 @@ def main_worker(args):
         num_chunks = args.num_chunks,
         text_preprocessor= tokenizer,
         text_type=args.text_type,
-        text_rep = args.text_rep
+        text_rep = args.text_rep,
+        disentangle = args.disentangle,
+        subset = args.subset,
+        test_mode = args.test
     )
+
+    if args.test == 'query':
+        query(args, model, test_dataset, tokenizer, save_dir)
+    elif args.test == 'loss':
+        test_loss, audio_accs, text_accs = loss(test_dataset, model, args)
+        print(f"Loss: {test_loss}, Audio Acc: {audio_accs}, Text Acc: {text_accs}")
+
+        val_dataset = ECALS_Dataset(
+            data_path = args.data_path,
+            split = "VALID",
+            sr = args.sr,
+            duration = args.duration,
+            num_chunks = args.num_chunks,
+            text_preprocessor= tokenizer,
+            text_type=args.text_type,
+            text_rep = args.text_rep,
+            disentangle = args.disentangle,
+            subset = args.subset,
+            test_mode = args.test
+        )
+        val_loss, audio_accs, text_accs = loss(val_dataset, model, args)
+        print(f"Loss: {val_loss}, Audio Acc: {audio_accs}, Text Acc: {text_accs}")
+
+
+
+def query(args, model, test_dataset, tokenizer, save_dir):
+
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=None,
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
-
     multi_query_set = json.load(open(os.path.join(args.data_path, "multiquery_samples.json"),'r'))
-    model.eval()
     track_ids, audio_embs, groudturths, audio_dict, multi_query_dict = [], [], [], {}, {}
     for batch in tqdm(test_loader):
         audio = batch['audio']
@@ -191,6 +220,32 @@ def main_worker(args):
     # single_query_evaluation(sq_targets, sq_logits, save_dir, test_dataset.tags) # 1054 tag evaluation
     # multi_query_evaluation(tag_dict, multi_query_dict, save_dir) # multi_query evaluation
 
+def loss(test_dataset, model, args):
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=args.batch_size, shuffle=None, collate_fn=test_dataset.batch_processor,
+        num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
+    epoch_end_loss, audio_accs, text_accs = [], [], []
+    for batch in tqdm(test_loader):
+        audio = batch['audio']
+        text = batch['text']
+        text_mask = batch['text_mask']
+        cluster_mask = batch['cluster_mask']
+        if args.device == 'cuda':
+            audio = audio.to(args.device, non_blocking=True)
+            text = text.to(args.device, non_blocking=True)
+            if torch.is_tensor(text_mask):
+                text_mask = text_mask.to(args.device, non_blocking=True)
+            if torch.is_tensor(cluster_mask):
+                cluster_mask = cluster_mask.to(args.device, non_blocking=True)
+        with torch.no_grad():
+            loss, audio_acc, text_acc, _ = model(audio, text, text_mask, cluster_mask)
+        epoch_end_loss.append(loss.detach().cpu())
+        audio_accs.append(audio_acc.detach().cpu())
+        text_accs.append(text_acc.detach().cpu())
+    val_loss = torch.stack(epoch_end_loss).mean(0, False)
+    audio_accs = torch.stack(audio_accs).mean(0, False)
+    text_accs = torch.stack(text_accs).mean(0, False)
+    return val_loss, audio_accs, text_accs
 
 if __name__ == '__main__':
     main()

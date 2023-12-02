@@ -123,7 +123,8 @@ def main_worker(ngpus_per_node, args):
         text_dim= args.text_dim,
         mlp_dim= args.mlp_dim,
         temperature = args.temperature,
-        disentangle = args.disentangle
+        disentangle = args.disentangle,
+        n_proj = args.n_proj
     )
     print(f'Total parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.0f}M')
     print(f'Audio encoder: {sum(p.numel() for p in model.audio_encoder.parameters()) / 1e6:.0f}M')
@@ -175,12 +176,14 @@ def main_worker(ngpus_per_node, args):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
     else:
         model = model.to(args.device)
-    optimizer = torch.optim.Adam(model.parameters(), args.lr)
+    # optimizer = torch.optim.Adam(model.parameters(), args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), args.lr, weight_decay=0.1)
     earlystopping_callback = EarlyStopping()
     cudnn.benchmark = True
 
     save_dir = f"mtr/exp/{args.text_type}_{args.text_rep}"
-    logger = Logger(save_dir)
+    # logger = Logger(save_dir)
+    logger = None
     save_hparams(args, save_dir)
     model_name = 'disentangle' if args.disentangle else 'base' 
 
@@ -202,8 +205,9 @@ def main_worker(ngpus_per_node, args):
         
         # save model
         if val_loss < best_val_loss:
-            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}best.pth')
+            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}_best.pth')
             best_val_loss = val_loss
+        torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer' : optimizer.state_dict()}, f'{save_dir}/{model_name}_last.pth')
 
         # earlystopping_callback(val_loss, best_val_loss)
         # if earlystopping_callback.early_stop:
