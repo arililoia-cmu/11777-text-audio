@@ -181,12 +181,15 @@ def main_worker(ngpus_per_node, args):
     earlystopping_callback = EarlyStopping()
     cudnn.benchmark = True
 
-    save_dir = f"mtr/exp/{args.text_type}_{args.text_rep}"
+    save_dir = args.save_path
     # logger = Logger(save_dir)
     logger = None
     save_hparams(args, save_dir)
-    model_name = 'disentangle' if args.disentangle else 'base' 
-
+    if args.name:
+        model_name = args.name
+    else:
+        model_name = 'disentangle' if args.disentangle else 'base'
+    
     best_val_loss = np.inf
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:

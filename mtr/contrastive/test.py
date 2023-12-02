@@ -100,8 +100,9 @@ def main_worker(args):
         disentangle = args.disentangle,
         n_proj = args.n_proj
     )
-    save_dir = "mtr/exp"
-    pretrained_object = torch.load(f'{save_dir}/{args.model}.pth', map_location='cpu')
+    save_dir = args.save_path
+    assert args.name is not None, "Please specify the model name"
+    pretrained_object = torch.load(f'{save_dir}/{args.name}.pth', map_location='cpu')
     state_dict = pretrained_object['state_dict']
     for k in list(state_dict.keys()):
         if k.startswith('module.'):
@@ -153,7 +154,6 @@ def main_worker(args):
 
 
 def query(args, model, test_dataset, tokenizer, save_dir):
-
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=None,
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
