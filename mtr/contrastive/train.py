@@ -21,7 +21,7 @@ import wandb
 
 sys.path.append(Path(__file__).parent.parent.parent.as_posix())
 from dataset import ECALS_Dataset
-from config import get_parser
+from config import get_parser, CLUSTERS
 from model import ContrastiveModel
 from mtr.modules.audio_rep import TFRep
 from mtr.modules.tokenizer import ResFrontEnd, SpecPatchEmbed
@@ -49,6 +49,7 @@ def main():
         wandb.config.update(args)
         wandb.define_metric("epoch")
         wandb.define_metric("val/*", step_metric="epoch")
+        wandb.define_metric("cluster/*", step_metric="epoch")
     
 
     if args.seed is not None:
@@ -204,7 +205,19 @@ def main_worker(ngpus_per_node, args):
             # logger.log_val_loss(val_loss, epoch)
             # logger.log_audio_acc(audio_accs, epoch)
             # logger.log_text_acc(text_accs, epoch)
-            wandb.log({"epoch": epoch, "val/loss": val_loss.item(), "val/audio_acc": audio_accs.item(), "val/text_acc": text_accs.item()})
+            log_items = {"epoch": epoch, "val/loss": val_loss.item()}
+            if audio_accs.ndim == 0:
+                log_items["val/audio_acc"] = audio_accs.item()
+                log_items["val/text_acc"] = text_accs.item()
+            else:
+                for i, cluster in enumerate(CLUSTERS):
+                    log_items[f"cluster/audio_acc_{cluster}"] = audio_accs[i].item()
+                    log_items[f"cluster/text_acc_{cluster}"] = text_accs[i].item()
+                log_items[f"val/audio_acc"] = audio_accs[-2].item()
+                log_items[f"val/text_acc"] = text_accs[-2].item()
+                log_items[f"val/weighted_audio_acc"] = audio_accs[-1].item()
+                log_items[f"val/weighted_text_acc"] = text_accs[-1].item()
+            wandb.log(log_items)
         
         # save model
         if val_loss < best_val_loss:
@@ -259,12 +272,13 @@ def validate(val_loader, model, epoch, args):
     # losses_val = AverageMeter('Valid Loss', ':.4e')
     # progress_val = ProgressMeter(len(val_loader),[losses_val],prefix="Epoch: [{}]".format(epoch))
     model.eval()
-    epoch_end_loss, audio_accs, text_accs = [], [], []
+    epoch_end_loss, audio_corrects, text_corrects, cluster_count = [], [], [], []
     for data_iter_step, batch in enumerate(tqdm(val_loader)):
         audio = batch['audio']
         text = batch['text']
         text_mask = batch['text_mask']
         cluster_mask = batch['cluster_mask']
+        cluster_count.append(cluster_mask.sum(dim=0))
         if args.device == 'cuda':
             audio = audio.to(args.device, non_blocking=True)
             text = text.to(args.device, non_blocking=True)
@@ -273,17 +287,33 @@ def validate(val_loader, model, epoch, args):
             if torch.is_tensor(cluster_mask):
                 cluster_mask = cluster_mask.to(args.device, non_blocking=True)
         with torch.no_grad():
-            loss, audio_acc, text_acc, _ = model(audio, text, text_mask, cluster_mask)
+            loss, audio_correct, text_correct, _ = model(audio, text, text_mask, cluster_mask)
         epoch_end_loss.append(loss.detach().cpu())
-        audio_accs.append(audio_acc.detach().cpu())
-        text_accs.append(text_acc.detach().cpu())
+        audio_corrects.append(audio_correct.detach().cpu())
+        text_corrects.append(text_correct.detach().cpu())
         # losses_val.step(loss.item(), audio.size(0))
         # if data_iter_step % args.print_freq == 0:
             # progress_val.display(data_iter_step)
+    
     val_loss = torch.stack(epoch_end_loss).mean(0, False)
-    audio_accs = torch.stack(audio_accs).mean(0, False)
-    text_accs = torch.stack(text_accs).mean(0, False)
-    return val_loss, audio_accs, text_accs
+    audio_corrects = torch.stack(audio_corrects).sum(0, False)
+    text_corrects = torch.stack(text_corrects).sum(0, False)
+    if args.disentangle:
+        cluster_count = torch.stack(cluster_count).sum(dim=0)
+        weight = cluster_count / cluster_count.sum()
+        audio_acc = audio_corrects / cluster_count
+        text_acc = text_corrects / cluster_count
+        avg_audio_acc = audio_acc.mean()
+        avg_text_acc = text_acc.mean()
+        wavg_audio_acc = (audio_acc * weight).sum()
+        wavg_text_acc = (text_acc * weight).sum()
+        audio_acc = torch.cat([audio_acc, avg_audio_acc.unsqueeze(0), wavg_audio_acc.unsqueeze(0)])
+        text_acc = torch.cat([text_acc, avg_text_acc.unsqueeze(0), wavg_text_acc.unsqueeze(0)])
+    else:
+        audio_acc /= len(val_loader.dataset)
+        text_acc /= len(val_loader.dataset)
+    
+    return val_loss, audio_acc, text_acc
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)

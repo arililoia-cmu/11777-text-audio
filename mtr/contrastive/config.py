@@ -62,7 +62,7 @@ def get_parser():
     parser.add_argument("--text_rep", default="caption", type=str)
 
     # disentalngement
-    parser.add_argument("--disentangle", action='store_true')
+    parser.add_argument("--disentangle", default='', type=str)
     parser.add_argument("--freeze", action='store_true')
     parser.add_argument("--subset", action='store_true')
     parser.add_argument("--log", action='store_true')
