@@ -31,6 +31,8 @@ from mtr.utils.train_utils import Logger, AverageMeter, ProgressMeter, EarlyStop
 def main():
     parser = get_parser()
     args = parser.parse_args()
+    assert 0 <= args.combine <= 1, "combine should be in [0, 1]"
+    assert 0 <= args.audio_w <= 1, "audio_w should be in [0, 1]"
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -125,7 +127,9 @@ def main_worker(ngpus_per_node, args):
         mlp_dim= args.mlp_dim,
         temperature = args.temperature,
         disentangle = args.disentangle,
-        n_proj = args.n_proj
+        n_proj = args.n_proj,
+        combine = args.combine,
+        audio_w = args.audio_w
     )
     print(f'Total parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.0f}M')
     print(f'Audio encoder: {sum(p.numel() for p in model.audio_encoder.parameters()) / 1e6:.0f}M')
@@ -183,8 +187,6 @@ def main_worker(ngpus_per_node, args):
     cudnn.benchmark = True
 
     save_dir = args.save_path
-    # logger = Logger(save_dir)
-    logger = None
     if args.name:
         model_name = args.name
     else:
@@ -198,25 +200,12 @@ def main_worker(ngpus_per_node, args):
             val_sampler.set_epoch(epoch)
         
         # train for one epoch
-        train(train_loader, model, optimizer, epoch, logger, args)
-        val_loss, audio_accs, text_accs = validate(val_loader, model, epoch, args)
+        train(train_loader, model, optimizer, epoch, args)
+        val_loss, accs = validate(val_loader, model, epoch, args)
         
         if args.log:
-            # logger.log_val_loss(val_loss, epoch)
-            # logger.log_audio_acc(audio_accs, epoch)
-            # logger.log_text_acc(text_accs, epoch)
             log_items = {"epoch": epoch, "val/loss": val_loss.item()}
-            if audio_accs.ndim == 0:
-                log_items["val/audio_acc"] = audio_accs.item()
-                log_items["val/text_acc"] = text_accs.item()
-            else:
-                for i, cluster in enumerate(CLUSTERS):
-                    log_items[f"cluster/audio_acc_{cluster}"] = audio_accs[i].item()
-                    log_items[f"cluster/text_acc_{cluster}"] = text_accs[i].item()
-                log_items[f"val/audio_acc"] = audio_accs[-2].item()
-                log_items[f"val/text_acc"] = text_accs[-2].item()
-                log_items[f"val/weighted_audio_acc"] = audio_accs[-1].item()
-                log_items[f"val/weighted_text_acc"] = text_accs[-1].item()
+            log_items.update(accs)
             wandb.log(log_items)
         
         # save model
@@ -232,9 +221,7 @@ def main_worker(ngpus_per_node, args):
         #     print("We are at epoch:", epoch)
         #     break
 
-def train(train_loader, model, optimizer, epoch, logger, args):
-    # train_losses = AverageMeter('Train Loss', ':.4e')
-    # progress = ProgressMeter(len(train_loader),[train_losses],prefix="Epoch: [{}]".format(epoch))
+def train(train_loader, model, optimizer, epoch, args):
     iters_per_epoch = len(train_loader)
     model.train()
     for data_iter_step, batch in enumerate(tqdm(train_loader)):
@@ -253,24 +240,15 @@ def train(train_loader, model, optimizer, epoch, logger, args):
        
         # compute output
         loss, _, _, logit_scale = model(audio=audio, text=text, text_mask=text_mask, cluster_mask=cluster_mask)
-        # train_losses.step(loss.item(), audio.size(0))
         
         if args.log:
-            # logger.log_train_loss(loss, epoch * iters_per_epoch + data_iter_step)
-            # logger.log_logitscale(logit_scale, epoch * iters_per_epoch + data_iter_step)
-            # logger.log_learning_rate(lr, epoch * iters_per_epoch + data_iter_step)
             wandb.log({"train/loss": loss.item(), "train/lr": lr, "train/logit_scale": logit_scale.item()})
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
-        # if data_iter_step % args.print_freq == 0:
-        #     progress.display(data_iter_step)
 
 def validate(val_loader, model, epoch, args):
-    # losses_val = AverageMeter('Valid Loss', ':.4e')
-    # progress_val = ProgressMeter(len(val_loader),[losses_val],prefix="Epoch: [{}]".format(epoch))
     model.eval()
     epoch_end_loss, audio_corrects, text_corrects, cluster_count = [], [], [], []
     for data_iter_step, batch in enumerate(tqdm(val_loader)):
@@ -289,31 +267,36 @@ def validate(val_loader, model, epoch, args):
         with torch.no_grad():
             loss, audio_correct, text_correct, _ = model(audio, text, text_mask, cluster_mask)
         epoch_end_loss.append(loss.detach().cpu())
-        audio_corrects.append(audio_correct.detach().cpu())
-        text_corrects.append(text_correct.detach().cpu())
-        # losses_val.step(loss.item(), audio.size(0))
-        # if data_iter_step % args.print_freq == 0:
-            # progress_val.display(data_iter_step)
+        audio_corrects.append(audio_correct)
+        text_corrects.append(text_correct)
     
     val_loss = torch.stack(epoch_end_loss).mean(0, False)
-    audio_corrects = torch.stack(audio_corrects).sum(0, False)
-    text_corrects = torch.stack(text_corrects).sum(0, False)
-    if args.disentangle:
+    audio_corrects = torch.tensor(audio_corrects).sum(0, False)
+    text_corrects = torch.tensor(text_corrects).sum(0, False)
+    accs = dict()
+    if args.disentangle and args.combine != 1:
         cluster_count = torch.stack(cluster_count).sum(dim=0)
         weight = cluster_count / cluster_count.sum()
-        audio_acc = audio_corrects / cluster_count
-        text_acc = text_corrects / cluster_count
-        avg_audio_acc = audio_acc.mean()
-        avg_text_acc = text_acc.mean()
-        wavg_audio_acc = (audio_acc * weight).sum()
-        wavg_text_acc = (text_acc * weight).sum()
-        audio_acc = torch.cat([audio_acc, avg_audio_acc.unsqueeze(0), wavg_audio_acc.unsqueeze(0)])
-        text_acc = torch.cat([text_acc, avg_text_acc.unsqueeze(0), wavg_text_acc.unsqueeze(0)])
+        if audio_corrects.shape[0] == len(CLUSTERS):
+            audio_acc = audio_corrects / cluster_count
+            text_acc = text_corrects / cluster_count
+            accs['val/audio_acc'] = audio_acc.mean()
+            accs['val/text_acc'] = text_acc.mean()
+            accs['val/weighted_audio_acc'] = (audio_acc * weight).sum()
+            accs['val/weighted_text_acc'] = (text_acc * weight).sum()
+        else:
+            audio_acc = audio_corrects[:-1] / cluster_count
+            text_acc = text_corrects[:-1] / cluster_count
+            accs['val/audio_acc'] = audio_corrects[-1] / len(val_loader.dataset)
+            accs['val/text_acc'] = text_corrects[-1] / len(val_loader.dataset)
+        for i, cluster in enumerate(CLUSTERS):
+            accs[f'cluster/audio_acc_{cluster}'] = audio_acc[i]
+            accs[f'cluster/text_acc_{cluster}'] = text_acc[i]
     else:
-        audio_acc /= len(val_loader.dataset)
-        text_acc /= len(val_loader.dataset)
+        accs['val/audio_acc'] = audio_corrects / len(val_loader.dataset)
+        accs['val/text_acc'] = text_corrects / len(val_loader.dataset)
     
-    return val_loss, audio_acc, text_acc
+    return val_loss, accs
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)

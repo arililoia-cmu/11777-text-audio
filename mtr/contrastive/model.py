@@ -9,7 +9,8 @@ from mtr.modules.head import CLIPHead
 from config import CLUSTERS
 
 class ContrastiveModel(nn.Module):
-    def __init__(self, audio_encoder, text_encoder, text_type, audio_dim, text_dim, mlp_dim, temperature, disentangle, n_proj):
+    def __init__(self, audio_encoder, text_encoder, text_type, audio_dim, text_dim, mlp_dim, 
+                 temperature, disentangle, n_proj, combine, audio_w=0.5):
         super(ContrastiveModel, self).__init__()
         self.audio_encoder = audio_encoder
         self.text_encoder = text_encoder
@@ -18,7 +19,8 @@ class ContrastiveModel(nn.Module):
         self.text_type = text_type
         self.init_temperature = torch.tensor([np.log(1/temperature)])
         self.logit_scale = nn.Parameter(self.init_temperature, requires_grad=True)
-        self.head = CLIPHead(logit_scale=self.logit_scale)
+        self.head = CLIPHead(logit_scale=self.logit_scale, combine=combine)
+        
         if disentangle:
             self.audio_projector = nn.ModuleDict()
             self.text_projector = nn.ModuleDict()
@@ -47,6 +49,7 @@ class ContrastiveModel(nn.Module):
         self.a_latent = nn.Identity()
         self.t_latent = nn.Identity()
         self.disentangle = disentangle
+        self.audio_w = audio_w
 
     def forward(self, audio, text, text_mask=None, cluster_mask=None):
         h_audio = self.encode_audio(audio)
@@ -56,7 +59,7 @@ class ContrastiveModel(nn.Module):
             h_text = self.encode_glove_text(text)
         audio_loss, audio_correct = self.head(h_audio, h_text, cluster_mask)
         text_loss, text_correct = self.head(h_text, h_audio, cluster_mask)
-        loss = (audio_loss + text_loss) / 2
+        loss = self.audio_w * audio_loss + (1 - self.audio_w) * text_loss
         return loss, audio_correct, text_correct, self.logit_scale
         
     def encode_audio(self, audio):

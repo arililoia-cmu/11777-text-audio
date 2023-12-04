@@ -17,55 +17,61 @@ class TripletHead(nn.Module):
         return losses.mean()
 
 class CLIPHead(nn.Module):
-    def __init__(self, logit_scale):
+    def __init__(self, logit_scale, combine=0.0):
         super(CLIPHead, self).__init__()
         self.criterion = nn.CrossEntropyLoss()
         self.logit_scale = logit_scale
+        self.combine = combine
 
     def forward(self, h1, h2, cluster_mask=None):
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             h1 = SyncFunction.apply(h1)
             h2 = SyncFunction.apply(h2)
-        device = h1.device
-        temperature = torch.clamp(self.logit_scale.exp(), max=100)
         h1 = F.normalize(h1, dim=-1)
         h2 = F.normalize(h2, dim=-1)
-        if h1.ndim == 2:  # one cluster
-            logits = torch.einsum('nc,mc->nm', [h1, h2]) * temperature.to(device)
-            N = logits.shape[0]  # batch size per GPU
-            labels = torch.arange(N, dtype=torch.long, device=device)
-            loss = F.cross_entropy(logits, labels)
-            # acc = self.acc(logits, labels)
-            correct = self.correct(logits, labels)
-        else:  # multiple clusters
+        if h1.ndim == 2:  # one cluster (shape: batch_size x dim)
+            loss, correct = self.compute_loss(h1, h2)
+        else:  # multiple clusters (shape: num_cluster x batch_size x dim)
+            if self.combine > 0:
+                combine_h1 = h1.permute(1, 0, 2) * cluster_mask.unsqueeze(-1)
+                combine_h1 = combine_h1.reshape(combine_h1.shape[0], -1)
+                combine_h2 = h2.permute(1, 0, 2) * cluster_mask.unsqueeze(-1)
+                combine_h2 = combine_h2.reshape(combine_h2.shape[0], -1)
+                combine_loss, combine_correct = self.compute_loss(combine_h1, combine_h2)
+            if self.combine == 1:
+                loss = combine_loss
+                correct = combine_correct
+            else:
+                loss, correct = self.compute_loss(h1, h2, cluster_mask)
+                loss = self.combine * combine_loss + (1 - self.combine) * loss
+                correct.append(combine_correct)
+        return loss, correct
+    
+    def compute_loss(self, h1, h2, cluster_mask=None):
+        device = h1.device
+        temperature = torch.clamp(self.logit_scale.exp(), max=100)
+        if cluster_mask is not None:
             logits = torch.einsum('knc,kmc->knm', [h1, h2]) * temperature.to(device)
             M, N = logits.shape[0:2]  # cluster size, batch size per GPU
             logits = logits.permute(1, 2, 0)
             labels = torch.arange(N, dtype=torch.long, device=device).unsqueeze(-1).repeat(1, M)
             loss = F.cross_entropy(logits, labels, reduction='none')
-            if cluster_mask is not None:
-                loss = loss * cluster_mask
-                loss = loss.sum() / cluster_mask.sum()
-            # acc = self.acc(logits, labels, cluster_mask)
+            loss = loss * cluster_mask
+            loss = loss.sum() / cluster_mask.sum()
             correct = self.correct(logits, labels, cluster_mask)
-        return loss, correct
-    
-    def acc(self, logits, target, cluster_mask=None):
-        y_pred = logits.max(dim=1)[1]
-        if cluster_mask is not None:
-            train_acc = torch.sum((y_pred == target) * cluster_mask, dim=0)
-            cluster_count = cluster_mask.sum(dim=0)
-            acc = train_acc / cluster_count
-            acc[cluster_count == 0] = 0
         else:
-            train_acc = torch.sum(y_pred == target)
-            acc = train_acc / logits.shape[0]
-        return acc
+            logits = torch.einsum('nc,mc->nm', [h1, h2]) * temperature.to(device)
+            N = logits.shape[0]  # batch size per GPU
+            labels = torch.arange(N, dtype=torch.long, device=device)
+            loss = F.cross_entropy(logits, labels)
+            correct = self.correct(logits, labels)
+        return loss, correct
     
     def correct(self, logits, target, cluster_mask=None):
         y_pred = logits.max(dim=1)[1]
         if cluster_mask is not None:
             correct = torch.sum((y_pred == target) * cluster_mask, dim=0)
+            correct = correct.tolist()
         else:
             correct = torch.sum(y_pred == target)
         return correct

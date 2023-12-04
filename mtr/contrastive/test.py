@@ -98,7 +98,9 @@ def main_worker(args):
         mlp_dim= args.mlp_dim,
         temperature = args.temperature,
         disentangle = args.disentangle,
-        n_proj = args.n_proj
+        n_proj = args.n_proj,
+        combine = args.combine,
+        audio_w = args.audio_w
     )
     save_dir = args.save_path
     assert args.name is not None, "Please specify the model name"
