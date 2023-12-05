@@ -70,9 +70,11 @@ def get_parser():
     parser.add_argument("--dropout", default=0.1, type=float)
     parser.add_argument("--test", default="query", type=str)
     parser.add_argument("--n_proj", default=1, type=int)
-    parser.add_argument("--name", default=None, type=str)
     parser.add_argument("--save_path", default="mtr/exp", type=str)
     parser.add_argument("--combine", default=0.0, type=float)
     parser.add_argument("--audio_w", default=0.5, type=float)
+    
+    parser.add_argument("--emb", default='', type=str)
+    parser.add_argument("--name", default=None, type=str)
 
     return parser

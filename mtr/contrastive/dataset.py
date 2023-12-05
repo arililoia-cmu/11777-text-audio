@@ -63,8 +63,8 @@ class ECALS_Dataset(Dataset):
             self.tags = tags
             if self.disentangle:
                 self.tag_to_idx = dict()
-                for cluster in CLUSTERS:
-                    self.tag_to_idx[cluster] = {i:idx for idx, i in enumerate(self.tags[cluster])}
+                for c in CLUSTERS:
+                    self.tag_to_idx[c] = {i:idx for idx, i in enumerate(self.tags[c])}
             else:
                 self.tag_to_idx = {i:idx for idx, i in enumerate(self.tags)}
         
@@ -172,18 +172,21 @@ class ECALS_Dataset(Dataset):
     def get_eval_item(self, index):
         song = self.songs[index]
         tag_list = song[-1]
-        binary = self.tag_to_binary(tag_list)
-        text = self.load_text(tag_list)
-        tags = self.tags
+        if self.disentangle:
+            text, cluster_mask = self.load_text_cluster(tag_list)
+            binary = self.tag_cluster_to_binary(text)
+        else:
+            binary = self.tag_to_binary(tag_list)
+            text, cluster_mask = self.load_text(tag_list), None
         track_id = song[0]
         audio = self.load_audio(song[0], train=False)
         # audio = torch.rand((self.num_chunks, self.input_length))
         return {
             "audio":audio, 
             "track_id":track_id, 
-            "tags":tags, 
             "binary":binary, 
-            "text":text
+            "text":text,
+            "cluster_mask":cluster_mask
         }
 
     def __getitem__(self, index):
@@ -192,24 +195,30 @@ class ECALS_Dataset(Dataset):
         else:
             return self.get_eval_item(index)
 
-    def batch_processor(self, batch):
+    def train_batch(self, batch):
         # batch = list of dictionary
         audio = [item_dict['audio'] for item_dict in batch]
         audios = torch.stack(audio)
         if self.disentangle:
-            # binary = dict()
-            # for cluster in CLUSTERS:
-            #     binary[cluster] = [item['binary'][cluster] for item in batch]
-            # binarys = dict()
-            # for cluster in CLUSTERS:
-            #     binarys[cluster] = torch.tensor(np.stack(binary[cluster]))
             cluster_mask = torch.tensor(np.stack([item['cluster_mask'] for item in batch]))
         else:
-            # binary = [item_dict['binary'] for item_dict in batch]
-            # binarys = torch.tensor(np.stack(binary))
             cluster_mask = None
         text, text_mask = self._text_preprocessor(batch, "text")
-        return {"audio":audios, "binary": None, "text":text, "text_mask":text_mask, "cluster_mask":cluster_mask}
+        return {"audio":audios, "text":text, "text_mask":text_mask, "cluster_mask":cluster_mask}
+    
+    def eval_batch(self, batch):
+        # batch = list of dictionary
+        ids = [item_dict['track_id'] for item_dict in batch]
+        audio = [item_dict['audio'] for item_dict in batch]
+        audio = torch.stack(audio)
+        if self.disentangle:
+            cluster_mask = [item['cluster_mask'] for item in batch]
+        else:
+            cluster_mask = None
+        binary = [item['binary'] for item in batch]
+        tokens = self._text_preprocessor(batch, "text")[0]
+        text = [item['text'] for item in batch]
+        return {"track_id": ids, "audio":audio, "binary": binary, "text":text, "token":tokens, "cluster_mask":cluster_mask}
     
     def _text_preprocessor(self, batch, target_text):
         if self.text_type == "bert":

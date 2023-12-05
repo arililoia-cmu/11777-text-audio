@@ -63,7 +63,12 @@ class ContrastiveModel(nn.Module):
         return loss, audio_correct, text_correct, self.logit_scale
         
     def encode_audio(self, audio):
-        # audio = (Batch x Length x Dim)
+        """
+        Input: 
+            audio (Batch x Length)
+        Output:
+            z_audio (Batch x Dim) or (N_clusters x Batch x Dim)
+        """
         audio_emb = self.audio_encoder(audio)
         h_audio = self.a_latent(audio_emb[:,0,:])
         if self.disentangle:
@@ -73,6 +78,13 @@ class ContrastiveModel(nn.Module):
         return z_audio
 
     def encode_bert_text(self, text, text_mask):
+        """
+        Input: 
+            text (Batch x Length)
+            text_mask (Batch x Length)
+        Output:
+            z_text (Batch x Dim) or (N_clusters x Batch x Dim)
+        """
         text_emb = self.text_encoder(input_ids=text, attention_mask=text_mask)
         
         if self.disentangle:
@@ -88,5 +100,21 @@ class ContrastiveModel(nn.Module):
     def encode_glove_text(self, text_emb): 
         h_text = self.t_latent(text_emb)
         z_text = self.text_projector(h_text)
+        return z_text
+    
+    def encode_bert_tag(self, tag, cluster=None):
+        """
+        Input
+            tag: str
+        Output:
+            z_tag: (1 x Dim)
+        """
+        text_emb = self.text_encoder(input_ids=tag, attention_mask=None)
+        text_emb = text_emb['last_hidden_state'][:,0,:]
+        h_text = self.t_latent(text_emb)
+        if cluster:
+            z_text = self.text_projector[cluster](h_text)
+        else:
+            z_text = self.text_projector(h_text)
         return z_text
     

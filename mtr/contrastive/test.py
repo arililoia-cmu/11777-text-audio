@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -22,7 +23,7 @@ from model import ContrastiveModel
 from mtr.modules.audio_rep import TFRep
 from mtr.modules.tokenizer import ResFrontEnd, SpecPatchEmbed
 from mtr.modules.encoder import MusicTransformer
-from mtr.utils.eval_utils import single_query_evaluation, multi_query_evaluation, _text_representation
+from mtr.utils.eval_utils import single_query_evaluation, retrieval_evaluation, _text_representation
 
 TAGNAMES = [
     'rock','pop','indie','alternative','electronic','hip hop','metal','jazz','punk',
@@ -131,10 +132,8 @@ def main_worker(args):
         test_mode = args.test
     )
 
-    if args.test == 'query':
-        query(args, model, test_dataset, tokenizer, save_dir)
-    elif args.test == 'loss':
-        test_loss, audio_accs, text_accs = loss(test_dataset, model, args)
+    if args.test == 'loss':
+        loss(test_dataset, model, args)
 
         val_dataset = ECALS_Dataset(
             data_path = args.data_path,
@@ -149,76 +148,166 @@ def main_worker(args):
             subset = args.subset,
             test_mode = args.test
         )
-        val_loss, audio_accs, text_accs = loss(val_dataset, model, args)
+        loss(val_dataset, model, args)
+    else:
+        if args.emb:
+            embeddings, tag_embs = torch.load(os.path.join(save_dir, f"{args.emb}_emb.pt"))
+        else:
+            # embeddings, tag_embs = get_embeddings(args, model, test_dataset, save_dir, tokenizer)
+            torch.save([embeddings, tag_embs], os.path.join(save_dir, f"{args.model}_emb.pt"))
+        single_query(args, test_dataset, embeddings, tag_embs, save_dir)
+        retrieval(args, embeddings, save_dir)
 
-
-
-def query(args, model, test_dataset, tokenizer, save_dir):
+def get_embeddings(args, model, test_dataset, tokenizer):
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=None,
+        test_dataset, batch_size=args.batch_size, shuffle=None, collate_fn=test_dataset.eval_batch,
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
-    multi_query_set = json.load(open(os.path.join(args.data_path, "multiquery_samples.json"),'r'))
-    track_ids, audio_embs, groudturths, audio_dict, multi_query_dict = [], [], [], {}, {}
+
+    embeddings = dict()
+    count = 0
     for batch in tqdm(test_loader):
+        track_id = batch['track_id']
+        
+        # (Batch, Segment, Length) -> (Batch * Segment, Length)
         audio = batch['audio']
-        list_of_tag = [tag[0] for tag in batch['text']]
-        caption = ", ".join(list_of_tag)
-        track_id = batch['track_id'][0]
-        track_ids.append(track_id)
-        groudturths.append(batch['binary'])
-        input_text = _text_representation(args, list_of_tag, tokenizer)
-        if args.gpu is not None:
+        audio = audio.reshape(-1, audio.shape[-1])
+        token = batch['token']
+        
+        if args.device != 'cpu':
             audio = audio.to(args.device, non_blocking=True)
-            input_text = input_text.to(args.device, non_blocking=True)
+            token = token.to(args.device, non_blocking=True)
         with torch.no_grad():
-            z_audio = model.encode_audio(audio.squeeze(0))
+            # ((N_clusters), Batch * Segment, Dim) -> ((N_clusters), Batch, Dim)
+            z_audio = model.encode_audio(audio).detach().cpu()
+            if args.disentangle:
+                z_audio = z_audio.reshape(len(CLUSTERS), len(track_id), -1, z_audio.shape[-1])
+                z_audio = z_audio.mean(2)
+            else:
+                z_audio = z_audio.reshape(len(track_id), -1, z_audio.shape[-1])
+                z_audio = z_audio.mean(1)
             if args.text_type == "bert":
-                z_caption = model.encode_bert_text(input_text, None)
+                z_caption = model.encode_bert_text(token, None).detach().cpu()
             elif args.text_type == "glove":
-                z_caption = model.encode_glove_text(input_text)
-        if track_id in multi_query_set.keys():
-            multi_query_dict[track_id] = {
-                "z_audio": z_audio.mean(0).detach().cpu(),
-                "track_id": track_id,
-                "text": caption,
-                "binary": batch['binary'],
-                "z_text": z_caption.detach().cpu()
+                z_caption = model.encode_glove_text(token).detach().cpu()
+            if args.disentangle:  # (N_clusters, Batch, Dim) -> (Batch, N_clusters, Dim)
+                z_audio = z_audio.permute(1,0,2)
+                z_caption = z_caption.permute(1,0,2)
+        
+        for i, tid in enumerate(track_id):
+            embeddings[tid] = {
+                "z_audio": z_audio[i],
+                "track_id": tid,
+                "text": batch['text'][i],
+                "binary": batch['binary'][i],
+                "z_text": z_caption[i],
             }
-        audio_embs.append(z_audio.mean(0).detach().cpu())
-        audio_dict[track_id] = z_audio.mean(0).detach().cpu()
-    audio_embs = torch.stack(audio_embs, dim=0)
+            if args.disentangle:
+                embeddings[tid]['cluster_mask'] = batch['cluster_mask'][i]
+        count += 1
+        if count == 5:
+            break
     
-    # single query evaluation
-    tag_embs, tag_dict = [], {}
-    for tag in test_dataset.tags:
-        input_text = _text_representation(args, tag, tokenizer)
-        if args.gpu is not None:
-            input_text = input_text.to(args.device, non_blocking=True)
-        with torch.no_grad():
-            if args.text_type == "bert":
+    if args.disentangle:
+        tag_embs = dict()
+        for c in CLUSTERS:
+            embs = []
+            for tag in tqdm(test_dataset.tags[c], desc=c):
+                input_text = _text_representation(args, tag, tokenizer)
+                if args.gpu is not None:
+                    input_text = input_text.to(args.device, non_blocking=True)
+                with torch.no_grad():
+                    z_tag = model.encode_bert_tag(input_text, c)
+                embs.append(z_tag.detach().cpu())
+            tag_embs[c] = embs
+    else:
+        tag_embs = []
+        for tag in tqdm(test_dataset.tags):
+            input_text = _text_representation(args, tag, tokenizer)
+            if args.gpu is not None:
+                input_text = input_text.to(args.device, non_blocking=True)
+            with torch.no_grad():
                 z_tag = model.encode_bert_text(input_text, None)
-            elif args.text_type == "glove":
-                z_tag = model.encode_glove_text(input_text)
-        tag_embs.append(z_tag.detach().cpu())
-        tag_dict[tag] = z_tag.detach().cpu()
+            tag_embs.append(z_tag.detach().cpu())
+    
+    return embeddings, tag_embs
 
-    torch.save(audio_dict, os.path.join(save_dir, "audio_embs.pt"))
-    torch.save(tag_dict, os.path.join(save_dir, "tag_embs.pt"))
-    torch.save(multi_query_dict, os.path.join(save_dir, "caption_embs.pt"))
+def single_query(args, test_dataset, embeddings, all_tag_embs, save_dir):
+    all_audio_embs = torch.stack([v['z_audio'] for v in embeddings.values()])
+    all_tags = [v['text'] for v in embeddings.values()]
+    
+    if args.disentangle:
+        results = dict()
+        for i, c in enumerate(CLUSTERS):
+            ids = torch.tensor([j for j in range(len(all_tags)) if all_tags[j][c]], dtype=torch.long)
+            audio_embs = all_audio_embs[ids, i]
+            audio_embs = nn.functional.normalize(audio_embs, dim=1)
+            tag_embs = torch.cat(all_tag_embs[c], dim=0)
+            tag_embs = nn.functional.normalize(tag_embs, dim=1)
+            targets = np.stack([v['binary'][c] for v in embeddings.values()])
 
-    tag_embs = torch.cat(tag_embs, dim=0)
-    targets = torch.cat(groudturths, dim=0)
-    audio_embs = nn.functional.normalize(audio_embs, dim=1)
-    tag_embs = nn.functional.normalize(tag_embs, dim=1)
-    single_query_logits = audio_embs @ tag_embs.T
+            logits = audio_embs @ tag_embs.T
+            logits_df = pd.DataFrame(logits.numpy(), index=embeddings.keys(), columns=test_dataset.tags[c])
+            targets_df = pd.DataFrame(targets, index=embeddings.keys(), columns=test_dataset.tags[c])
+            
+            result = single_query_evaluation(targets_df, logits_df, test_dataset.tags[c])
+            results[c] = result
+        json.dump(results, open(os.path.join(save_dir, "cluster_results.json"),'w'), indent=4)
+    
+    else:
+        audio_embs = nn.functional.normalize(all_audio_embs, dim=1)
+        tag_embs = torch.cat(tag_embs, dim=0)
+        tag_embs = nn.functional.normalize(tag_embs, dim=1)
+        targets = np.stack([v['binary'] for v in embeddings.values()])
 
-    sq_logits = pd.DataFrame(single_query_logits.numpy(), index=track_ids, columns=test_dataset.tags)
-    sq_targets = pd.DataFrame(targets.numpy(), index=track_ids, columns=test_dataset.tags)
+        logits = audio_embs @ tag_embs.T
+        logits_df = pd.DataFrame(logits.numpy(), index=embeddings.keys(), columns=test_dataset.tags)
+        targets_df = pd.DataFrame(targets, index=embeddings.keys(), columns=test_dataset.tags)
 
-    single_query_evaluation(sq_targets, sq_logits, save_dir, TAGNAMES) # 50 tag evaluation
-    single_query_evaluation(sq_targets, sq_logits, save_dir, test_dataset.split_tags) # test split tag evaluation
-    # single_query_evaluation(sq_targets, sq_logits, save_dir, test_dataset.tags) # 1054 tag evaluation
-    # multi_query_evaluation(tag_dict, multi_query_dict, save_dir) # multi_query evaluation
+        results = single_query_evaluation(targets_df, logits_df, save_dir, TAGNAMES)
+        json.dump(results, open(os.path.join(save_dir, f"{args.name}_{len(TAGNAMES)}_results.json"),'w'), indent=4)
+        
+        single_query_evaluation(targets_df, logits_df, save_dir, test_dataset.split_tags)
+        json.dump(results, open(os.path.join(save_dir, f"{args.name}_{len(test_dataset.split_tags)}_results.json"),'w'), indent=4)
+
+
+def retrieval(args, embeddings, save_dir):
+    # retrieval_query = json.load(open(os.path.join(args.data_path, "retrieval_query.json"),'r'))
+    # embeddings = {k:v for k,v in embeddings.items() if k in retrieval_query.keys()}
+
+    if args.disentangle:
+        cluster_mask = torch.tensor(np.array([v['cluster_mask'] for v in embeddings.values()]))
+        
+        audio_embs = torch.stack([v['z_audio'] for v in embeddings.values()])
+        audio_embs = audio_embs.view(audio_embs.shape[0], -1)
+        audio_embs = nn.functional.normalize(audio_embs, dim=1)
+        
+        text_embs = torch.stack([v['z_text'] for v in embeddings.values()], dim=0)
+        text_embs *= cluster_mask.unsqueeze(-1)  # Mask out non-existing clusters
+        text_embs = text_embs.view(text_embs.shape[0], -1)
+        text_embs = nn.functional.normalize(text_embs, dim=1)
+
+        captions, songs = [], []
+        for k, v in embeddings.items():
+            caption = []
+            for c in CLUSTERS:
+                caption.extend(v['text'][c])
+            caption = ", ".join(caption)
+            captions.append(caption)
+            songs.append(k)
+    else:
+        audio_embs = torch.stack([v['z_audio'] for v in embeddings.values()])
+        audio_embs = nn.functional.normalize(audio_embs, dim=1)
+        
+        text_embs = torch.stack([v['z_text'] for v in embeddings.values()], dim=0)
+        text_embs = nn.functional.normalize(text_embs, dim=1)
+
+        captions = [", ".join(v['text']) for v in embeddings.values()]
+        songs = [k for k in embeddings.keys()]
+    
+    results = retrieval_evaluation(audio_embs, text_embs, captions, songs)
+    json.dump(results, open(os.path.join(save_dir, "{args.name}_retrieval_results.json"),'w'), indent=4)
+        
+
 
 def loss(dataset, model, args):
     loader = torch.utils.data.DataLoader(

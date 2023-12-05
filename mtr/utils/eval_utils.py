@@ -22,7 +22,7 @@ def _text_representation(args, text, tokenizer):
         print("error!")
     return text_inputs 
     
-def single_query_evaluation(targets, logits, save_dir, labels):
+def single_query_evaluation(targets, logits, labels):
     """
     target = Pandas DataFrame Binary Mtrix( track x label )
     logits = Pandas DataFrame Logit Mtrix( track x label )
@@ -46,57 +46,52 @@ def single_query_evaluation(targets, logits, save_dir, labels):
             "pr_auc":pr_aucs[i]
     }
     results['tag_wise'] = tag_wise
-    label_len = len(labels)
-    with open(os.path.join(save_dir, f"{label_len}_results.json"), mode="w") as io:
-        json.dump(results, io, indent=4)
+    return results
     
-def multi_query_evaluation(tag_dict, multi_query_dict, save_dir):
-    track_ids = [k for k in multi_query_dict.keys()]
-    tags = [tag for tag in tag_dict.keys()]
-    tag_embs = torch.cat([tag_dict[tag] for tag in tags], dim=0)
-    audio_embs = torch.stack([multi_query_dict[k]['z_audio'] for k in track_ids])
-    text_embs = torch.cat([multi_query_dict[k]['z_text'] for k in track_ids], dim=0)
-    gt_items = {", ".join(multi_query_dict[k]['text']):k for k in track_ids} # unique caption case
-    
-    tag_embs = torch.nn.functional.normalize(tag_embs, dim=1)
-    audio_embs = torch.nn.functional.normalize(audio_embs, dim=1)
-    text_embs = torch.nn.functional.normalize(text_embs, dim=1)
+def retrieval_evaluation(audio_embs, text_embs, captions, songs, cluster_mask=None):
+    results = dict()
+    # Text to audio retrieval
+    logits = text_embs @ audio_embs.T
+    predictions = {}
+    for i in range(logits.shape[0]):
+        sorted_idx = torch.argsort(logits[i], descending=True)
+        sorted_song = [songs[idx] for idx in sorted_idx]
+        predictions[captions[i]] = sorted_song
+    results['text_to_audio'] = rank_eval(captions, songs, predictions)
+    print("Text to audio: ", results['text_to_audio'])
 
-    logits = text_embs @ audio_embs.T # text to audio
-    sq_logits = tag_embs @ tag_embs.T # tag similarity/
-    mq_logits = text_embs @ text_embs.T # caption similarity
-    df_pred = pd.DataFrame(logits.numpy(), index=gt_items.keys(), columns=gt_items.values())
-    pred_items = {}
-    for idx in range(len(df_pred)):
-        item = df_pred.iloc[idx]
-        pred_items[item.name] = list(item.sort_values(ascending=False).index)
-    results = rank_eval(gt_items, pred_items)
-    print(results)
-    results['tag_stat'] = {
-        "mean": float(sq_logits.mean()),
-        "std": float(sq_logits.std())
-    }
+    # Audio to text retrieval
+    logits = audio_embs @ text_embs.T
+    predictions = {}
+    for i in range(logits.shape[0]):
+        sorted_idx = torch.argsort(logits[i], descending=True)
+        sorted_caption = [captions[idx] for idx in sorted_idx]
+        predictions[songs[i]] = sorted_caption
+    results['audio_to_text'] = rank_eval(songs, captions, predictions)
+    print("Audio to text: ", results['audio_to_text'])
+    
+    caption_similarity = text_embs @ text_embs.T
     results['caption_stat'] = {
-        "mean": float(mq_logits.mean()),
-        "std": float(mq_logits.std())
+        "mean": float(caption_similarity.mean()),
+        "std": float(caption_similarity.std())
     }
+    audio_similarity = audio_embs @ audio_embs.T
     results['audio_stat'] = {
-        "mean": float(logits.mean()),
-        "std": float(logits.std())
+        "mean": float(audio_similarity.mean()),
+        "std": float(audio_similarity.std())
     }
-    with open(os.path.join(save_dir, f"mq_results.json"), mode="w") as io:
-        json.dump(results, io, indent=4)
+    return results
 
-def rank_eval(gt_items, pred_items):
+def rank_eval(captions, songs, pred_items):
     """
-        gt_items = Dict: caption -> msdid
+        captions = Dict: caption -> msdid
         pred_items = Dict: caption -> [msdid, msdid, msdid, ...] sort by relevant score
     """
     R1, R5, R10, mAP10, med_rank = [], [], [], [], []
-    for i, cap in enumerate(gt_items):
-        gt_fname = gt_items[cap]
+    for i, cap in enumerate(captions):
+        target = songs[i]
         pred_fnames = pred_items[cap]
-        preds = np.asarray([gt_fname == pred for pred in pred_fnames])
+        preds = np.asarray([target == pred for pred in pred_fnames])
         rank_value = min([idx for idx, retrieval_success in enumerate(preds) if retrieval_success])
         R1.append(np.sum(preds[:1], dtype=float))
         R5.append(np.sum(preds[:5], dtype=float))

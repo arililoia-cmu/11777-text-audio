@@ -168,10 +168,10 @@ def main_worker(ngpus_per_node, args):
         val_sampler = None
     
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None), collate_fn=train_dataset.batch_processor,
+        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None), collate_fn=train_dataset.train_batch,
         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=(val_sampler is None), collate_fn=train_dataset.batch_processor,
+        val_dataset, batch_size=args.batch_size, shuffle=(val_sampler is None), collate_fn=train_dataset.train_batch,
         num_workers=args.workers, pin_memory=True, sampler=val_sampler, drop_last=True)
     
     if args.distributed:
