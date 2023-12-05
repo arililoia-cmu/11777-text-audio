@@ -103,10 +103,19 @@ def subset_stat():
     cluster_count = OrderedDict(sorted(cluster_count.items(), key=lambda x: x[1], reverse=True))
     json.dump([cluster_count, tag_count], open('small/cluster_stat.json', 'w'), indent=4)
 
+def retrieval_sample(num):
+    with open('small/split.json', 'r') as f:
+        split = json.load(f)
+        song_ids = split['test_track']
+    sample = random.sample(song_ids, num)
+    json.dump(sample, open('small/retrieval_sample.json', 'w'), indent=4)
+
 
 
 if __name__ == '__main__':
     # subset_split([40000, 5000, 5000])
-    subset_tags()
-    subset_tag_split()
-    subset_stat()
+    # subset_tags()
+    # subset_tag_split()
+    # subset_stat()
+
+    retrieval_sample(1000)

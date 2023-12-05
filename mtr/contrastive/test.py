@@ -153,7 +153,7 @@ def main_worker(args):
         if args.emb:
             embeddings, tag_embs = torch.load(os.path.join(save_dir, f"{args.emb}_emb.pt"))
         else:
-            # embeddings, tag_embs = get_embeddings(args, model, test_dataset, save_dir, tokenizer)
+            embeddings, tag_embs = get_embeddings(args, model, test_dataset, save_dir, tokenizer)
             torch.save([embeddings, tag_embs], os.path.join(save_dir, f"{args.model}_emb.pt"))
         single_query(args, test_dataset, embeddings, tag_embs, save_dir)
         retrieval(args, embeddings, save_dir)
@@ -271,8 +271,8 @@ def single_query(args, test_dataset, embeddings, all_tag_embs, save_dir):
 
 
 def retrieval(args, embeddings, save_dir):
-    # retrieval_query = json.load(open(os.path.join(args.data_path, "retrieval_query.json"),'r'))
-    # embeddings = {k:v for k,v in embeddings.items() if k in retrieval_query.keys()}
+    retrieval_query = json.load(open(os.path.join(args.data_path, "retrieval_query.json"),'r'))
+    embeddings = {k:v for k,v in embeddings.items() if k in retrieval_query.keys()}
 
     if args.disentangle:
         cluster_mask = torch.tensor(np.array([v['cluster_mask'] for v in embeddings.values()]))
