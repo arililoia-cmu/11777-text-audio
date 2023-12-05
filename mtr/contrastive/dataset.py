@@ -60,13 +60,7 @@ class ECALS_Dataset(Dataset):
         
         with open(tag_path, 'r') as f:
             tags = json.load(f)
-            self.tags = tags
-            if self.disentangle:
-                self.tag_to_idx = dict()
-                for c in CLUSTERS:
-                    self.tag_to_idx[c] = {i:idx for idx, i in enumerate(self.tags[c])}
-            else:
-                self.tag_to_idx = {i:idx for idx, i in enumerate(self.tags)}
+            self.all_tags = tags
         
         with open(split_tag_path, 'r') as f:
             split_tags = json.load(f)
@@ -79,6 +73,12 @@ class ECALS_Dataset(Dataset):
                 self.split_tags = split_tags['valid_track']
             elif self.split == "TEST":
                 self.split_tags = split_tags['test_track']
+            if self.disentangle:
+                self.tag_to_idx = dict()
+                for c in CLUSTERS:
+                    self.tag_to_idx[c] = {i:idx for idx, i in enumerate(self.split_tags[c])}
+            else:
+                self.tag_to_idx = {i:idx for idx, i in enumerate(self.split_tags)}
         
         del split, song_tags, tags, split_tags
     
@@ -140,7 +140,7 @@ class ECALS_Dataset(Dataset):
         return texts, np.array(cluster_mask)
     
     def tag_to_binary(self, tag_list):
-        binary = np.zeros([len(self.tags),], dtype=np.float32)
+        binary = np.zeros([len(self.split_tags),], dtype=np.float32)
         for tag in tag_list:
             binary[self.tag_to_idx[tag]] = 1.0
         return binary
@@ -148,7 +148,7 @@ class ECALS_Dataset(Dataset):
     def tag_cluster_to_binary(self, tag_cluster):
         binary = dict()
         for cluster in CLUSTERS:
-            binary[cluster] = np.zeros([len(self.tags[cluster]),], dtype=np.float32)
+            binary[cluster] = np.zeros([len(self.split_tags[cluster]),], dtype=np.float32)
             if cluster in tag_cluster:
                 for tag in tag_cluster[cluster]:
                     binary[cluster][self.tag_to_idx[cluster][tag]] = 1.0

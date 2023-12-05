@@ -153,8 +153,8 @@ def main_worker(args):
         if args.emb:
             embeddings, tag_embs = torch.load(os.path.join(save_dir, f"{args.emb}_emb.pt"))
         else:
-            embeddings, tag_embs = get_embeddings(args, model, test_dataset, save_dir, tokenizer)
-            torch.save([embeddings, tag_embs], os.path.join(save_dir, f"{args.model}_emb.pt"))
+            embeddings, tag_embs = get_embeddings(args, model, test_dataset, tokenizer)
+            torch.save([embeddings, tag_embs], os.path.join(save_dir, f"{args.name}_emb.pt"))
         single_query(args, test_dataset, embeddings, tag_embs, save_dir)
         retrieval(args, embeddings, save_dir)
 
@@ -164,7 +164,6 @@ def get_embeddings(args, model, test_dataset, tokenizer):
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
 
     embeddings = dict()
-    count = 0
     for batch in tqdm(test_loader):
         track_id = batch['track_id']
         
@@ -203,15 +202,12 @@ def get_embeddings(args, model, test_dataset, tokenizer):
             }
             if args.disentangle:
                 embeddings[tid]['cluster_mask'] = batch['cluster_mask'][i]
-        count += 1
-        if count == 5:
-            break
     
     if args.disentangle:
         tag_embs = dict()
         for c in CLUSTERS:
             embs = []
-            for tag in tqdm(test_dataset.tags[c], desc=c):
+            for tag in tqdm(test_dataset.split_tags[c], desc=c):
                 input_text = _text_representation(args, tag, tokenizer)
                 if args.gpu is not None:
                     input_text = input_text.to(args.device, non_blocking=True)
@@ -221,7 +217,7 @@ def get_embeddings(args, model, test_dataset, tokenizer):
             tag_embs[c] = embs
     else:
         tag_embs = []
-        for tag in tqdm(test_dataset.tags):
+        for tag in tqdm(test_dataset.split_tags):
             input_text = _text_representation(args, tag, tokenizer)
             if args.gpu is not None:
                 input_text = input_text.to(args.device, non_blocking=True)
@@ -239,17 +235,18 @@ def single_query(args, test_dataset, embeddings, all_tag_embs, save_dir):
         results = dict()
         for i, c in enumerate(CLUSTERS):
             ids = torch.tensor([j for j in range(len(all_tags)) if all_tags[j][c]], dtype=torch.long)
+            songs = [k for k in embeddings.keys() if embeddings[k]['text'][c]]
             audio_embs = all_audio_embs[ids, i]
             audio_embs = nn.functional.normalize(audio_embs, dim=1)
             tag_embs = torch.cat(all_tag_embs[c], dim=0)
             tag_embs = nn.functional.normalize(tag_embs, dim=1)
-            targets = np.stack([v['binary'][c] for v in embeddings.values()])
+            targets = np.stack([embeddings[k]['binary'][c] for k in songs])
 
             logits = audio_embs @ tag_embs.T
-            logits_df = pd.DataFrame(logits.numpy(), index=embeddings.keys(), columns=test_dataset.tags[c])
-            targets_df = pd.DataFrame(targets, index=embeddings.keys(), columns=test_dataset.tags[c])
+            logits_df = pd.DataFrame(logits.numpy(), index=songs, columns=test_dataset.split_tags[c])
+            targets_df = pd.DataFrame(targets, index=songs, columns=test_dataset.split_tags[c])
             
-            result = single_query_evaluation(targets_df, logits_df, test_dataset.tags[c])
+            result = single_query_evaluation(targets_df, logits_df, test_dataset.split_tags[c])
             results[c] = result
         json.dump(results, open(os.path.join(save_dir, "cluster_results.json"),'w'), indent=4)
     
@@ -260,8 +257,8 @@ def single_query(args, test_dataset, embeddings, all_tag_embs, save_dir):
         targets = np.stack([v['binary'] for v in embeddings.values()])
 
         logits = audio_embs @ tag_embs.T
-        logits_df = pd.DataFrame(logits.numpy(), index=embeddings.keys(), columns=test_dataset.tags)
-        targets_df = pd.DataFrame(targets, index=embeddings.keys(), columns=test_dataset.tags)
+        logits_df = pd.DataFrame(logits.numpy(), index=embeddings.keys(), columns=test_dataset.split_tags)
+        targets_df = pd.DataFrame(targets, index=embeddings.keys(), columns=test_dataset.split_tags)
 
         results = single_query_evaluation(targets_df, logits_df, save_dir, TAGNAMES)
         json.dump(results, open(os.path.join(save_dir, f"{args.name}_{len(TAGNAMES)}_results.json"),'w'), indent=4)
