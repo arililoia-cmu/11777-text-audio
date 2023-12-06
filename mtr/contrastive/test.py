@@ -7,21 +7,19 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 from transformers import AutoModel, AutoTokenizer, set_seed
 from tqdm import tqdm
 import json
 import pandas as pd
-import time
 
 sys.path.append(Path(__file__).parent.parent.parent.as_posix())
 from dataset import ECALS_Dataset
 from config import get_parser, CLUSTERS
 from model import ContrastiveModel
 from mtr.modules.audio_rep import TFRep
-from mtr.modules.tokenizer import ResFrontEnd, SpecPatchEmbed
+from mtr.modules.tokenizer import ResFrontEnd
 from mtr.modules.encoder import MusicTransformer
 from mtr.utils.eval_utils import single_query_evaluation, retrieval_evaluation, _text_representation
 
@@ -56,7 +54,6 @@ def main():
     main_worker(args)
 
 def main_worker(args):
-    t0 = time.time()
     audio_preprocessr = TFRep(
                 sample_rate= args.sr,
                 f_min=0,
@@ -107,12 +104,15 @@ def main_worker(args):
     assert args.name is not None, "Please specify the model name"
     pretrained_object = torch.load(f'{save_dir}/{args.name}.pth', map_location='cpu')
     state_dict = pretrained_object['state_dict']
-    for k in list(state_dict.keys()):
-        if k.startswith('module.'):
-            state_dict[k[len("module."):]] = state_dict[k]
-        del state_dict[k]
-    model.load_state_dict(state_dict, strict=False)
-
+    if args.name.startswith('ecals'):
+        for k in list(state_dict.keys()):
+            if k.startswith('module.'):
+                state_dict[k[len("module."):]] = state_dict[k]
+            del state_dict[k]
+        model.load_state_dict(state_dict, strict=False)
+    else:
+        model.load_state_dict(state_dict)
+    print(f"Model loaded from {save_dir}/{args.name}.pth, stop epoch: {pretrained_object['epoch']}")
     
     model = model.to(args.device)
     cudnn.benchmark = True
@@ -248,11 +248,13 @@ def single_query(args, test_dataset, embeddings, all_tag_embs, save_dir):
             
             result = single_query_evaluation(targets_df, logits_df, test_dataset.split_tags[c])
             results[c] = result
-        json.dump(results, open(os.path.join(save_dir, "cluster_results.json"),'w'), indent=4)
+        results['roc_auc'] = sum([v['roc_auc'] * v['count'] for v in results.values()]) / sum([v['count'] for v in results.values()])
+        results['pr_auc'] = sum([v['pr_auc'] * v['count'] for v in results.values()]) / sum([v['count'] for v in results.values()])
+        json.dump(results, open(os.path.join(save_dir, 'result', f"{args.name}_cluster_results.json"),'w'), indent=4)
     
     else:
         audio_embs = nn.functional.normalize(all_audio_embs, dim=1)
-        tag_embs = torch.cat(tag_embs, dim=0)
+        tag_embs = torch.cat(all_tag_embs, dim=0)
         tag_embs = nn.functional.normalize(tag_embs, dim=1)
         targets = np.stack([v['binary'] for v in embeddings.values()])
 
@@ -260,21 +262,24 @@ def single_query(args, test_dataset, embeddings, all_tag_embs, save_dir):
         logits_df = pd.DataFrame(logits.numpy(), index=embeddings.keys(), columns=test_dataset.split_tags)
         targets_df = pd.DataFrame(targets, index=embeddings.keys(), columns=test_dataset.split_tags)
 
-        results = single_query_evaluation(targets_df, logits_df, save_dir, TAGNAMES)
-        json.dump(results, open(os.path.join(save_dir, f"{args.name}_{len(TAGNAMES)}_results.json"),'w'), indent=4)
+        # results = single_query_evaluation(targets_df, logits_df, save_dir, TAGNAMES)
+        # json.dump(results, open(os.path.join(save_dir, f"{args.name}_{len(TAGNAMES)}_results.json"),'w'), indent=4)
         
-        single_query_evaluation(targets_df, logits_df, save_dir, test_dataset.split_tags)
-        json.dump(results, open(os.path.join(save_dir, f"{args.name}_{len(test_dataset.split_tags)}_results.json"),'w'), indent=4)
+        results = single_query_evaluation(targets_df, logits_df, test_dataset.split_tags)
+        json.dump(results, open(os.path.join(save_dir, 'result', f"{args.name}_{len(test_dataset.split_tags)}_results.json"),'w'), indent=4)
 
 
 def retrieval(args, embeddings, save_dir):
-    retrieval_query = json.load(open(os.path.join(args.data_path, "retrieval_query.json"),'r'))
-    embeddings = {k:v for k,v in embeddings.items() if k in retrieval_query.keys()}
+    path = os.path.join(args.data_path, 'small' if args.subset else 'full', 'retrieval_sample.json')
+    retrieval_query = json.load(open(path,'r'))
+    embeddings = {k:v for k,v in embeddings.items() if k in retrieval_query}
 
     if args.disentangle:
+        # TODO: Remove mask in both trainig and testing
         cluster_mask = torch.tensor(np.array([v['cluster_mask'] for v in embeddings.values()]))
         
         audio_embs = torch.stack([v['z_audio'] for v in embeddings.values()])
+        audio_embs *= cluster_mask.unsqueeze(-1)  # Mask out non-existing clusters
         audio_embs = audio_embs.view(audio_embs.shape[0], -1)
         audio_embs = nn.functional.normalize(audio_embs, dim=1)
         
@@ -302,13 +307,12 @@ def retrieval(args, embeddings, save_dir):
         songs = [k for k in embeddings.keys()]
     
     results = retrieval_evaluation(audio_embs, text_embs, captions, songs)
-    json.dump(results, open(os.path.join(save_dir, "{args.name}_retrieval_results.json"),'w'), indent=4)
+    json.dump(results, open(os.path.join(save_dir, 'result', f"{args.name}_retrieval_results.json"),'w'), indent=4)
         
-
 
 def loss(dataset, model, args):
     loader = torch.utils.data.DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=None, collate_fn=dataset.batch_processor,
+        dataset, batch_size=args.batch_size, shuffle=None, collate_fn=dataset.train_batch,
         num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
     epoch_end_loss, audio_corrects, text_corrects, cluster_count = [], [], [], []
     for batch in tqdm(loader):
@@ -329,11 +333,12 @@ def loss(dataset, model, args):
         epoch_end_loss.append(loss.detach().cpu())
         audio_corrects.append(audio_correct.detach().cpu())
         text_corrects.append(text_correct.detach().cpu())
+    
     val_loss = torch.stack(epoch_end_loss).mean(0, False)
     audio_corrects = torch.stack(audio_corrects).sum(0, False)
     text_corrects = torch.stack(text_corrects).sum(0, False)
     
-    if args.disentangle:
+    if args.disentangle and args.combine != 1 :
         cluster_count = torch.stack(cluster_count).sum(dim=0)
         weight = cluster_count / cluster_count.sum()
         audio_acc = audio_corrects / cluster_count
@@ -345,11 +350,11 @@ def loss(dataset, model, args):
         print(f"Loss: {val_loss}")
         print(f"Audio Acc: {avg_audio_acc}, Text Acc: {avg_text_acc}")
         print(f"Weighted Audio Acc: {wavg_audio_acc}, Weighted Text Acc: {wavg_text_acc}")
-        for i, c in enumerate(CLUSTERS):
-            print(f"{c}: Audio Acc: {audio_acc[i]}, Text Acc: {text_acc[i]}")
+        # for i, c in enumerate(CLUSTERS):
+        #     print(f"{c}: Audio Acc: {audio_acc[i]}, Text Acc: {text_acc[i]}")
     else:
-        audio_acc /= len(loader.dataset)
-        text_acc /= len(loader.dataset)
+        audio_acc = audio_corrects / len(loader.dataset)
+        text_acc =  text_corrects / len(loader.dataset)
         print(f"Loss: {val_loss}")
         print(f"Audio Acc: {audio_acc}, Text Acc: {text_acc}")
 

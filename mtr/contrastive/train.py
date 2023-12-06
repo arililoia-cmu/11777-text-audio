@@ -229,7 +229,7 @@ def train(train_loader, model, optimizer, epoch, args):
         audio = batch['audio']
         text = batch['text']
         text_mask = batch['text_mask']
-        cluster_mask = batch['cluster_mask']
+        cluster_mask = batch['cluster_mask']  # TODO: Remove mask in both training and testing
         if args.device == 'cuda':
             audio = audio.to(args.device, non_blocking=True)
             text = text.to(args.device, non_blocking=True)

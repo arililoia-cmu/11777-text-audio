@@ -36,6 +36,7 @@ def single_query_evaluation(targets, logits, labels):
         'roc_auc' :roc_auc,
         'pr_auc': pr_auc
     }
+    print(f"roc_auc: {roc_auc}, pr_auc: {pr_auc}")
     # tag wise score
     roc_aucs = metrics.roc_auc_score(targets, logits, average=None)
     pr_aucs = metrics.average_precision_score(targets, logits, average=None)
@@ -46,6 +47,7 @@ def single_query_evaluation(targets, logits, labels):
             "pr_auc":pr_aucs[i]
     }
     results['tag_wise'] = tag_wise
+    results['count'] = len(labels)
     return results
     
 def retrieval_evaluation(audio_embs, text_embs, captions, songs, cluster_mask=None):
@@ -82,28 +84,31 @@ def retrieval_evaluation(audio_embs, text_embs, captions, songs, cluster_mask=No
     }
     return results
 
-def rank_eval(captions, songs, pred_items):
+def rank_eval(sources, targets, pred_items):
     """
         captions = Dict: caption -> msdid
         pred_items = Dict: caption -> [msdid, msdid, msdid, ...] sort by relevant score
     """
     R1, R5, R10, mAP10, med_rank = [], [], [], [], []
-    for i, cap in enumerate(captions):
-        target = songs[i]
-        pred_fnames = pred_items[cap]
-        preds = np.asarray([target == pred for pred in pred_fnames])
-        rank_value = min([idx for idx, retrieval_success in enumerate(preds) if retrieval_success])
-        R1.append(np.sum(preds[:1], dtype=float))
-        R5.append(np.sum(preds[:5], dtype=float))
-        R10.append(np.sum(preds[:10], dtype=float))
-        positions = np.arange(1, 11, dtype=float)[preds[:10] > 0]
-        med_rank.append(rank_value)
+    for i, source in enumerate(sources):
+        target = targets[i]
+        pred_names = pred_items[source]
+        preds = np.array([target == pred for pred in pred_names])
+        rank_value = np.nonzero(preds)[0][0]
+        
+        R1.append(float(rank_value < 1))
+        R5.append(float(rank_value < 5))
+        R10.append(float(rank_value < 10))
+        
+        positions = [rank_value + 1] if rank_value < 10 else []
         if len(positions) > 0:
             precisions = np.divide(np.arange(1, len(positions) + 1, dtype=float), positions)
             avg_precision = np.sum(precisions, dtype=float)
             mAP10.append(avg_precision)
         else:
             mAP10.append(0.0)
+        
+        med_rank.append(rank_value)
 
     r1_estimate, _, _, _ = jackknife.jackknife_stats(np.asarray(R1), np.mean, 0.95)
     r5_estimate, _, _, _ = jackknife.jackknife_stats(np.asarray(R5), np.mean, 0.95)
